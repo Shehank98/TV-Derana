@@ -95,9 +95,9 @@ function optionCard(n, t) {
   const o = n === 1 ? t.option1 : t.option2;
   const sel = t.selected_option === n && o;
   const title = n === 1 ? 'Option 01 · Package value to discount' : 'Option 02 · Discount to package value';
-  return `<section class="opt ${sel ? 'sel' : ''}" style="animation-delay:${n * 0.06}s">
+  return `<section class="opt ${sel ? 'sel' : ''}" data-opt="${n}" role="button" tabindex="0" aria-pressed="${sel ? 'true' : 'false'}" title="${sel ? 'Used in report' : 'Click to use this option in the report'}" style="animation-delay:${n * 0.06}s">
     <div class="head"><h3>${title}</h3>
-      ${sel ? '<span class="badge">Used in report</span>' : `<label class="use"><input type="radio" name="useopt" value="${n}"> Use in report</label>`}</div>
+      ${sel ? '<span class="badge">✓ Used in report</span>' : '<span class="use">Click card to use in report</span>'}</div>
     <div class="line"><span>Total rate card value</span><b>${money(t.trv)}</b></div>
     ${n === 1
     ? `<div class="line"><label for="o1">Package value</label><input id="o1" class="amber" inputmode="decimal" placeholder="Type package value" value="${s.option1_package ?? ''}"></div>
@@ -185,5 +185,20 @@ function bind() {
     if (s.option2_discount !== null) s.selected_option = 2;
     save('o2');
   });
-  el.querySelectorAll('[name=useopt]').forEach((rb) => rb.addEventListener('change', () => { s.selected_option = Number(rb.value); save(); }));
+  // Clicking anywhere on an option card makes it the one used in the report.
+  const pick = (card) => {
+    const n = Number(card.dataset.opt);
+    const input = card.querySelector('input');
+    if (!input.value.trim()) { input.focus(); return; } // nothing to use yet: let the user type the value
+    if (s.selected_option === n) return;
+    s.selected_option = n;
+    el.querySelectorAll('.opt[data-opt]').forEach((c) => c.classList.toggle('sel', c === card));
+    save();
+  };
+  el.querySelectorAll('.opt[data-opt]').forEach((card) => {
+    card.addEventListener('click', (e) => { if (!e.target.closest('input, label, button, a')) pick(card); });
+    card.addEventListener('keydown', (e) => {
+      if (e.target === card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(card); }
+    });
+  });
 }
