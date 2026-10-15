@@ -20,12 +20,11 @@ const programs = PROGRAMS.map(([name, slot, day, s, e, prime, generic = false, a
   id: i + 1, name, slot_id: slotByName[slot].id, day_pattern: day, start_time: s, end_time: e, is_prime: prime, is_generic: generic, aliases, active: true,
 }));
 const byName = (n) => programs.find((p) => p.name === n);
-const ctxFor = (client, card = null) => ({
+const ctxFor = (card = null) => ({
   programs: new Map(programs.map((p) => [p.id, p])),
   slots: new Map(slots.map((s) => [s.id, s])),
-  client, card,
+  card,
   rules: [{ keyword: 'CRAWLER', label: 'Crawler', rate_pt: 15000, rate_npt: 8000, apply_client_discount: false, active: true }],
-  settings: { tax_pct: 0 },
 });
 
 test('times: excel dates, fractions, strings, midnight', () => {
@@ -104,7 +103,7 @@ test('matcher: learned alias makes an unrecognisable name an exact match', () =>
   assert.equal(m.match.status, 'matched');
 });
 
-test('pricing: pro-rata units, single discount, package split', () => {
+test('pricing: pro-rata units and Option 01 / Option 02', () => {
   const sangeethe = byName('Sangeethe').id; // 1,166,000 per 30s
   const lines = [
     { row: 1, theme: 'A', program: 'SANGEETHE', dur: 15, spots: 5, program_id: sangeethe },
@@ -112,24 +111,40 @@ test('pricing: pro-rata units, single discount, package split', () => {
     { row: 3, theme: 'A', program: 'SANGEETHE', dur: 30, spots: 3, program_id: sangeethe },
     { row: 4, theme: 'A', program: 'BILLBOARD', dur: 3, spots: 10, program_id: sangeethe },
   ];
-  const base = calculate(lines, ctxFor({ pricing_type: 'base' }));
   // 2.5 + 1.3333 + 3 + 1 = 7.8333 units, no rounding before pricing
-  assert.equal(base.totals.gross, Math.round((2.5 + 4 / 3 + 3 + 1) * 1166000 * 100) / 100);
-  assert.equal(base.totals.gross, base.totals.net);
+  const trv = Math.round((2.5 + 4 / 3 + 3 + 1) * 1166000 * 100) / 100;
+  const none = calculate(lines, ctxFor());
+  assert.equal(none.totals.trv, trv);
+  assert.equal(none.totals.package, trv);
+  assert.equal(none.totals.discount_pct, 0);
 
-  const disc = calculate(lines, ctxFor({ pricing_type: 'discount', discount_pct: 30 }));
-  assert.equal(disc.totals.gross, base.totals.gross);
-  assert.equal(disc.totals.net, Math.round(base.totals.gross * 0.7 * 100) / 100); // discount applied once
-  assert.equal(disc.totals.client_discount_pct, 30);
+  // Option 01: package → discount (team's sheet: 2,319,166.67 & 1,000,000 → 56.9%)
+  const o1 = calculate(lines, ctxFor(), { option1_package: 1000000, selected_option: 1 });
+  assert.equal(o1.totals.package, 1000000);
+  assert.equal(o1.totals.option1.discount_pct, Math.round((1 - 1000000 / trv) * 100 * 1000) / 1000);
+  assert.ok(Math.abs(o1.lines.reduce((a, l) => a + l.discounted, 0) - 1000000) < 0.05);
+  assert.ok(Math.abs(o1.lines.reduce((a, l) => a + l.share, 0) - 1) < 1e-4);
 
-  const pkg = calculate(lines, ctxFor({ pricing_type: 'discount', discount_pct: 30 }), 5000000);
-  assert.equal(pkg.totals.final, 5000000);
-  const sumFinal = pkg.lines.reduce((s, l) => s + l.final, 0);
-  assert.ok(Math.abs(sumFinal - 5000000) < 0.05);
-  assert.ok(Math.abs(pkg.lines.reduce((s, l) => s + l.share, 0) - 1) < 1e-4);
+  // Option 02: discount → package (team's sheet: 70% of 2,319,166.67 → 695,750.00)
+  const o2 = calculate(lines, ctxFor(), { option1_package: 1000000, option2_discount: 70, selected_option: 2 });
+  assert.equal(o2.totals.option2.package, Math.round(trv * 0.3 * 100) / 100);
+  assert.equal(o2.totals.package, o2.totals.option2.package);
+  assert.ok(o2.totals.option1, 'both options are reported');
+  assert.equal(o2.totals.discount_pct, 70);
+
+  // Selected option without a value falls back to the other one.
+  const fb = calculate(lines, ctxFor(), { option1_package: 500000, selected_option: 2 });
+  assert.equal(fb.totals.selected_option, 1);
 });
 
-test('pricing: custom card fixed / discount / default, and crawler special rate', () => {
+test('pricing: the team sheet example reproduces exactly', () => {
+  const { options } = require('../server/lib/pricing');
+  const o = options(2319166.67, { option1_package: 1000000, option2_discount: 70 });
+  assert.equal(o.option1.discount_pct.toFixed(1), '56.9');
+  assert.equal(o.option2.package.toFixed(2), '695750.00');
+});
+
+test('pricing: custom card fixed / discount / default, crawler rate, removed lines', () => {
   const dream = byName('Dream Star');
   const skole = byName('Skole');
   const derana = byName('Derana Aruna');
@@ -143,13 +158,16 @@ test('pricing: custom card fixed / discount / default, and crawler special rate'
     { row: 3, program: 'DERANA ARUNA', dur: 30, spots: 1, program_id: derana.id },
     { row: 4, program: 'L CRAWLER', dur: 10, spots: 3, program_id: dream.id },
     { row: 5, program: 'UNKNOWN', dur: 30, spots: 1, program_id: null },
+    { row: 6, program: 'SKOLE', dur: 30, spots: 5, program_id: skole.id, status: 'excluded' },
   ];
-  const r = calculate(lines, ctxFor({ pricing_type: 'rate_card' }, card));
-  const rate = (row) => r.lines.find((l) => l.row === row).client_rate;
+  const r = calculate(lines, ctxFor(card));
+  const rate = (row) => r.lines.find((l) => l.row === row).rc_rate;
   assert.equal(rate(1), 400000);
   assert.equal(rate(2), 900000);           // 1,200,000 − 25%
-  assert.equal(rate(3), 298800);           // 332,000 − 10% default
+  assert.equal(rate(3), 298800);           // 332,000 − 10% card default
   assert.equal(rate(4), 15000);            // crawler, prime time
-  assert.equal(r.lines.find((l) => l.row === 4).net, 15000);  // 10s × 3 = 1 unit
-  assert.equal(r.totals.unpriced, 1);
+  assert.equal(r.lines.find((l) => l.row === 4).value, 15000);  // 10s × 3 = 1 unit
+  assert.equal(r.totals.excluded, 2);
+  assert.equal(r.excluded.find((e) => e.row === 6).reason, 'Removed by user');
+  assert.equal(r.split.PT.spots + r.split.NPT.spots, r.totals.spots);
 });

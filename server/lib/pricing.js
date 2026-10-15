@@ -1,44 +1,30 @@
-// Pricing: turns matched schedule lines into a quotation.
+// Schedule pricing with the two package options the sales team uses.
 //
-//   units (30-sec equivalents) = duration × spots / 30      (pro-rata, any duration)
-//   gross  = units × base rate        → "rate card value"
-//   net    = units × client rate      → value after the client's deal
-//   final  = package price split by each line's share of net (if a package is set)
+//   units (30-sec equivalents) = duration × spots / 30         (pro-rata, any duration)
+//   R/C rate   = the client's rate card rate for the program's slot
+//                (custom card: fixed rate | base × (1 − item%) | base × (1 − card default%);
+//                 no card: the base rate; special items such as CRAWLER: the rule's PT/NPT rate)
+//   value      = units × R/C rate             → Σ = TOTAL RATE CARD VALUE (TRV)
 //
-// Client rate per rate-card slot:
-//   pricing 'base'       → base rate
-//   pricing 'discount'   → base × (1 − discount%)
-//   pricing 'rate_card'  → card item for the slot: fixed rate, or base × (1 − item%);
-//                          slots without an item → base × (1 − card default%)
-// Special items (e.g. CRAWLER) use their own PT/NPT rate instead of the slot rate;
-// the client discount applies to them only if the rule says so.
-// Nothing is rounded until the end, so totals equal the sum of exact line values.
+//   Option 01 (package → discount):  discount% = (1 − package / TRV) × 100
+//   Option 02 (discount → package):  package   = TRV × (1 − discount% / 100)
+//
+//   The selected option gives the final package. Each line's
+//   discounted value = value × package / TRV, and its share = discounted / package.
+// Nothing is rounded until the result is returned.
 
 const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+const r3 = (n) => Math.round(n * 1000) / 1000;
+const pos = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0;
 
-function clientRate(slot, client, card) {
+function cardRate(slot, card) {
   const base = Number(slot.rate_30s);
-  if (!client || client.pricing_type === 'base') return { rate: base, basis: 'Base rate card' };
-  if (client.pricing_type === 'discount') {
-    const d = Number(client.discount_pct) || 0;
-    return { rate: base * (1 - d / 100), basis: `Base −${d}%` };
-  }
-  if (client.pricing_type === 'rate_card' && card) {
-    const item = card.items && card.items[slot.id];
-    if (item && item.mode === 'fixed') return { rate: Number(item.value), basis: `${card.name}: fixed` };
-    if (item && item.mode === 'discount') return { rate: base * (1 - item.value / 100), basis: `${card.name}: −${Number(item.value)}%` };
-    const d = Number(card.default_discount_pct) || 0;
-    return { rate: base * (1 - d / 100), basis: d ? `${card.name}: −${d}% (default)` : `${card.name}: base` };
-  }
-  return { rate: base, basis: 'Base rate card' };
-}
-
-// Discount % the client gets "in general" (used for special items that allow it).
-function clientGeneralDiscount(client, card) {
-  if (!client) return 0;
-  if (client.pricing_type === 'discount') return Number(client.discount_pct) || 0;
-  if (client.pricing_type === 'rate_card' && card) return Number(card.default_discount_pct) || 0;
-  return 0;
+  if (!card) return { rate: base, basis: 'Base rate card' };
+  const item = card.items && card.items[slot.id];
+  if (item && item.mode === 'fixed') return { rate: Number(item.value), basis: `${card.name} (fixed)` };
+  if (item && item.mode === 'discount') return { rate: base * (1 - item.value / 100), basis: `${card.name} (−${Number(item.value)}%)` };
+  const d = Number(card.default_discount_pct) || 0;
+  return { rate: base * (1 - d / 100), basis: d ? `${card.name} (−${d}%)` : card.name };
 }
 
 function findSpecialRule(text, rules) {
@@ -47,137 +33,125 @@ function findSpecialRule(text, rules) {
     new RegExp(`\\b${String(r.keyword).toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(up));
 }
 
+// Works out both options from the total rate card value.
+function options(trv, { option1_package: pkg1, option2_discount: d2, selected_option: sel = 2 } = {}) {
+  const o1 = pos(pkg1) && trv > 0
+    ? { package: Number(pkg1), discount_pct: (1 - Number(pkg1) / trv) * 100 } : null;
+  const o2 = pos(d2) && Number(d2) <= 100
+    ? { discount_pct: Number(d2), package: trv * (1 - Number(d2) / 100) } : null;
+  let selected = Number(sel) === 1 ? 1 : 2;
+  if (selected === 1 && !o1 && o2) selected = 2;
+  if (selected === 2 && !o2 && o1) selected = 1;
+  const chosen = selected === 1 ? o1 : o2;
+  return { option1: o1, option2: o2, selected, package: chosen ? chosen.package : trv, discount_pct: chosen ? chosen.discount_pct : 0 };
+}
+
 /**
- * @param lines    [{ row, theme, program, day, start, end, dur, spots, program_id }]
- * @param ctx      { programs: Map id→program(with slot_id), slots: Map id→slot(with category_name),
- *                   client, card: {name, default_discount_pct, items: {slotId: {mode,value}}},
- *                   rules, settings }
- * @param packagePrice  optional negotiated total
+ * @param lines  [{ row, theme, program, day, start, end, dur, spots, program_id, status }]
+ * @param ctx    { programs: Map, slots: Map, card, rules }
+ * @param opts   { option1_package, option2_discount, selected_option }
  */
-function calculate(lines, ctx, packagePrice) {
-  const { programs, slots, client, card, rules = [], settings = {} } = ctx;
+function calculate(lines, ctx, opts = {}) {
+  const { programs, slots, card = null, rules = [] } = ctx;
   const out = [];
-  const unpriced = [];
+  const excluded = [];
 
   for (const l of lines) {
     const units = (Number(l.dur) * Number(l.spots)) / 30;
     const prog = l.program_id ? programs.get(Number(l.program_id)) : null;
     const slot = prog ? slots.get(prog.slot_id) : null;
-    if (!prog || !slot) {
-      unpriced.push({ ...l, units, reason: prog ? 'Program has no rate slot' : 'Not matched to a program' });
+    if (l.status === 'excluded' || !prog || !slot) {
+      excluded.push({ ...l, units: r3(units), reason: l.status === 'excluded' ? 'Removed by user' : 'Not matched to a program' });
       continue;
     }
     const rule = findSpecialRule(l.program, rules);
-    let base;
-    let rate;
-    let basis;
-    if (rule) {
-      base = Number(prog.is_prime ? rule.rate_pt : rule.rate_npt);
-      const d = rule.apply_client_discount ? clientGeneralDiscount(client, card) : 0;
-      rate = base * (1 - d / 100);
-      basis = `${rule.label} (${prog.is_prime ? 'PT' : 'NPT'})${d ? ` −${d}%` : ''}`;
-    } else {
-      base = Number(slot.rate_30s);
-      ({ rate, basis } = clientRate(slot, client, card));
-    }
+    const base = rule ? Number(prog.is_prime ? rule.rate_pt : rule.rate_npt) : Number(slot.rate_30s);
+    const { rate, basis } = rule
+      ? { rate: base, basis: `${rule.label} ${prog.is_prime ? 'PT' : 'NPT'} rate` }
+      : cardRate(slot, card);
     out.push({
-      ...l,
-      units,
-      program_name: prog.name,
-      slot_id: slot.id,
-      slot_name: slot.name,
-      category: slot.category_name,
-      is_prime: !!prog.is_prime,
-      special: rule ? rule.label : null,
-      base_rate: base,
-      client_rate: rate,
-      rate_basis: basis,
-      gross: units * base,
-      net: units * rate,
+      ...l, units,
+      program_name: prog.name, slot_id: slot.id, slot_name: slot.name, category: slot.category_name,
+      is_prime: !!prog.is_prime, special: rule ? rule.label : null,
+      base_rate: base, rc_rate: rate, rate_basis: basis,
+      base_value: units * base, value: units * rate,
     });
   }
 
-  const sum = (arr, k) => arr.reduce((s, x) => s + x[k], 0);
-  const gross = sum(out, 'gross');
-  const net = sum(out, 'net');
-  const pkg = packagePrice !== null && packagePrice !== undefined && packagePrice !== '' && Number(packagePrice) > 0
-    ? Number(packagePrice) : null;
-  const final = pkg ?? net;
+  const sum = (arr, k) => arr.reduce((s, x) => s + Number(x[k]), 0);
+  const trv = sum(out, 'value');
+  const opt = options(trv, opts);
+  const factor = trv > 0 ? opt.package / trv : 0;
   for (const l of out) {
-    l.final = net > 0 ? final * (l.net / net) : 0;
-    l.share = final > 0 ? l.final / final : 0;
+    l.discounted = l.value * factor;
+    l.share = opt.package > 0 ? l.discounted / opt.package : 0;
   }
 
-  const taxPct = Number(settings.tax_pct) || 0;
   const durations = [...new Set(out.map((l) => Number(l.dur)))].sort((a, b) => a - b);
+  const acc = () => ({ lines: 0, spots: 0, seconds: 0, units: 0, value: 0, discounted: 0 });
+  const add = (g, l) => {
+    g.lines++; g.spots += Number(l.spots); g.seconds += Number(l.dur) * Number(l.spots);
+    g.units += l.units; g.value += l.value; g.discounted += l.discounted;
+  };
 
-  // Program summary (pivot by duration), keyed by program (= one time slot).
+  // Program analysis (one row per program airing, durations pivoted).
   const byProgram = new Map();
   for (const l of out) {
     const key = `${l.program_id}|${l.special || ''}`;
     if (!byProgram.has(key)) {
-      byProgram.set(key, {
-        program_id: l.program_id, program_name: l.program_name + (l.special ? ` — ${l.special}` : ''),
-        category: l.category, slot_name: l.slot_name, is_prime: l.is_prime,
-        base_rate: l.base_rate, client_rate: l.client_rate, rate_basis: l.rate_basis,
-        durations: {}, spots: 0, units: 0, gross: 0, net: 0, final: 0,
-      });
+      byProgram.set(key, { ...acc(), program_id: l.program_id, program_name: l.program_name + (l.special ? ` (${l.special})` : ''),
+        category: l.category, slot_name: l.slot_name, is_prime: l.is_prime, rc_rate: l.rc_rate, base_rate: l.base_rate,
+        rate_basis: l.rate_basis, durations: {} });
     }
     const g = byProgram.get(key);
     g.durations[l.dur] = (g.durations[l.dur] || 0) + Number(l.spots);
-    g.spots += Number(l.spots); g.units += l.units; g.gross += l.gross; g.net += l.net; g.final += l.final;
+    add(g, l);
   }
-
-  const groupBy = (key) => {
+  const group = (key) => {
     const m = new Map();
     for (const l of out) {
       const k = l[key] || '—';
-      if (!m.has(k)) m.set(k, { name: k, spots: 0, units: 0, gross: 0, net: 0, final: 0 });
-      const g = m.get(k);
-      g.spots += Number(l.spots); g.units += l.units; g.gross += l.gross; g.net += l.net; g.final += l.final;
+      if (!m.has(k)) m.set(k, { name: k, ...acc() });
+      add(m.get(k), l);
     }
     return [...m.values()];
   };
-  const prime = { PT: { spots: 0, units: 0, final: 0 }, NPT: { spots: 0, units: 0, final: 0 } };
-  for (const l of out) {
-    const p = prime[l.is_prime ? 'PT' : 'NPT'];
-    p.spots += Number(l.spots); p.units += l.units; p.final += l.final;
-  }
+  const split = { PT: acc(), NPT: acc() };
+  for (const l of out) add(split[l.is_prime ? 'PT' : 'NPT'], l);
 
-  const roundRow = (o) => {
+  const totals = acc();
+  out.forEach((l) => add(totals, l));
+
+  const round = (o) => {
     const c = { ...o };
-    for (const k of ['units']) if (k in c) c[k] = Math.round(c[k] * 1000) / 1000;
-    for (const k of ['base_rate', 'client_rate', 'gross', 'net', 'final']) if (k in c) c[k] = r2(c[k]);
+    for (const k of ['units']) if (k in c) c[k] = r3(c[k]);
+    for (const k of ['base_rate', 'rc_rate', 'base_value', 'value', 'discounted']) if (k in c) c[k] = r2(c[k]);
     if ('share' in c) c.share = Math.round(c.share * 1e6) / 1e6;
     return c;
   };
+  const roundOpt = (o) => (o ? { package: r2(o.package), discount_pct: Math.round(o.discount_pct * 1000) / 1000 } : null);
+  const catOrder = (a, b) => b.value - a.value;
 
   return {
-    lines: out.map(roundRow),
-    unpriced,
+    lines: out.map(round),
+    excluded,
     durations,
-    byProgram: [...byProgram.values()].map(roundRow).sort((a, b) => b.final - a.final),
-    byCategory: groupBy('category').map(roundRow),
-    byTheme: groupBy('theme').map(roundRow),
-    prime: { PT: roundRow(prime.PT), NPT: roundRow(prime.NPT) },
+    byProgram: [...byProgram.values()].map(round).sort((a, b) => a.category.localeCompare(b.category) || b.value - a.value),
+    byCategory: group('category').map(round).sort(catOrder),
+    byTheme: group('theme').map(round).sort(catOrder),
+    split: { PT: round(split.PT), NPT: round(split.NPT) },
     totals: {
-      lines: out.length,
-      spots: sum(out, 'spots'),
-      seconds: out.reduce((s, l) => s + Number(l.dur) * Number(l.spots), 0),
-      units: Math.round(sum(out, 'units') * 1000) / 1000,
-      gross: r2(gross),
-      net: r2(net),
-      client_discount_pct: gross > 0 ? r2((1 - net / gross) * 100) : 0,
-      package_price: pkg,
-      final: r2(final),
-      total_discount_pct: gross > 0 ? r2((1 - final / gross) * 100) : 0,
-      extra_discount_pct: pkg && net > 0 ? r2((1 - pkg / net) * 100) : 0,
-      tax_pct: taxPct,
-      tax: r2(final * taxPct / 100),
-      grand_total: r2(final * (1 + taxPct / 100)),
-      unpriced: unpriced.length,
+      ...round(totals),
+      base_value: r2(sum(out, 'base_value')),
+      excluded: excluded.length,
+      trv: r2(trv),
+      option1: roundOpt(opt.option1),
+      option2: roundOpt(opt.option2),
+      selected_option: opt.selected,
+      package: r2(opt.package),
+      discount_pct: Math.round(opt.discount_pct * 1000) / 1000,
     },
   };
 }
 
-module.exports = { calculate, clientRate, findSpecialRule };
+module.exports = { calculate, cardRate, findSpecialRule, options };

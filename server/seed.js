@@ -64,8 +64,7 @@ const PROGRAMS = [
   ['Salena Nuwan', 'Weekends Prime Drama', 'Wkends', '21:05', '22:00', true],
   ['Dream Star', 'Dream Star', 'Wkends', '19:35', '21:05', true],
   ['Champion Star Unlimited', 'Champion Star', 'Sat.day', '22:35', '00:00', true],
-  ['Derana 60 Plus', '60+, Battle of Bands', 'Wkends', '10:00', '00:00', false, false, ['Derana 60Plus', 'Derana 60+'],
-    'Imported from the old system as 10:00–00:00 — please confirm the real time belt.'],
+  ['Derana 60 Plus', '60+, Battle of Bands', 'Wkends', '10:00', '11:00', false, false, ['Derana 60Plus', 'Derana 60+']],
   ['Paara Kiyana Tharuka', 'Paara Kiyana Tharuka', 'Monday', '08:00', '09:00', false],
   ['Travel with Chathura', 'Travel with Chathura', 'Sat.day', '11:00', '11:30', false],
   ['Dishyum Dishyum', 'Thathvika, Dishum, Beli Mal, K/Warriors', 'Sat.day', '11:00', '12:00', false],
@@ -85,9 +84,9 @@ const PROGRAMS = [
   ['Lokaya Saha Lokayo', 'Derana Aruna & Lokaya Saha Lokayo', 'Daily', '07:30', '08:00', false],
   ['360', 'Other Prime Programs 10.30pm Onwards - Weekdays', 'Monday', '22:35', '00:00', false],
   ['Vaada Pitiya', 'Other Prime Programs 10.30pm Onwards - Weekdays', 'Tuesday', '22:35', '00:00', false],
-  ['Aluth Parlimenthuwa', 'Other Prime Programs 10.30pm Onwards - Weekdays', 'Wednesday', '22:35', '00:00', true],
-  ['Rebuild Sri Lanka', 'Other Prime Programs 10.30pm Onwards - Weekdays', 'Thursday', '22:35', '00:00', true],
-  ['Ma', 'Other Prime Programs 10.30pm Onwards - Weekdays', 'Friday', '22:35', '00:00', true],
+  ['Aluth Parlimenthuwa', 'Other Prime Programs 10.30pm Onwards - Weekdays', 'Wednesday', '22:35', '00:00', false],
+  ['Rebuild Sri Lanka', 'Other Prime Programs 10.30pm Onwards - Weekdays', 'Thursday', '22:35', '00:00', false],
+  ['Ma', 'Other Prime Programs 10.30pm Onwards - Weekdays', 'Friday', '22:35', '00:00', false],
   ['Sparsha', 'Other Prime Programs 10.30pm Onwards - Weekends', 'Sunday', '22:35', '00:00', false],
   ['Sera Smart Kitchen', 'Magazines and Documentaries - Weekends', 'Sunday', '16:00', '16:25', false],
   ['The Cook Out', 'Magazines and Documentaries - Weekends', 'Sunday', '16:25', '16:55', false],
@@ -100,7 +99,6 @@ const PROGRAMS = [
 ];
 
 const SETTINGS = {
-  tax_pct: 0,
   currency: 'LKR',
   // Header rows in agency sheets that are labels, not campaign themes.
   section_labels: ['SPONSORSHIP', 'BENEFITS', 'PRESENCE', 'COMMERCIAL BENEFITS'],
@@ -163,13 +161,15 @@ async function seedIfEmpty() {
         [ndbCard, id, Math.round(rate * 1.1)]);
     }
 
-    const { rows: [{ id: ogilvy }] } = await c.query(
-      `INSERT INTO agencies(name) VALUES ('Ogilvy Media') RETURNING id`);
-    const { rows: [{ id: agency2 }] } = await c.query(
-      `INSERT INTO agencies(name) VALUES ('Agency 2') RETURNING id`);
-    await c.query(`INSERT INTO clients(agency_id, name, pricing_type, discount_pct) VALUES ($1,'SLT/Mobitel','discount',30)`, [ogilvy]);
-    await c.query(`INSERT INTO clients(agency_id, name, pricing_type, rate_card_id) VALUES ($1,'NDB','rate_card',$2)`, [ogilvy, ndbCard]);
-    await c.query(`INSERT INTO clients(agency_id, name, pricing_type, rate_card_id) VALUES ($1,'Maliban','rate_card',$2)`, [agency2, maliCard]);
+    const agency = async (name) => (await c.query('INSERT INTO agencies(name) VALUES ($1) RETURNING id', [name])).rows[0].id;
+    const client = async (name) => (await c.query('INSERT INTO clients(name) VALUES ($1) RETURNING id', [name])).rows[0].id;
+    const link = (a, cl, card, disc) => c.query(
+      'INSERT INTO agency_clients(agency_id, client_id, rate_card_id, discount_pct) VALUES ($1,$2,$3,$4)', [a, cl, card, disc]);
+    const ogilvy = await agency('Ogilvy Media');
+    const agency2 = await agency('Agency 2');
+    await link(ogilvy, await client('SLT/Mobitel'), null, 30);
+    await link(ogilvy, await client('NDB'), ndbCard, 0);
+    await link(agency2, await client('Maliban'), maliCard, 0);
   });
   console.log('seed data inserted');
   return true;

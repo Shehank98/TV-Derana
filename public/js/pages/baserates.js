@@ -15,7 +15,7 @@ async function load() {
   document.getElementById('addCat').onclick = () => editCat();
   document.getElementById('addSlot').onclick = () => editSlot(cats, {});
   el.innerHTML = `
-    <div class="note" style="margin-bottom:14px">Changing a rate here updates every program in that slot and every client discount or card based on it. Saved quotations keep the rates they were saved with.</div>
+    <div class="note" style="margin-bottom:14px">Changing a rate here updates every program in that slot and every client discount or card based on it. Saved schedules keep their rates until they are edited again.</div>
     <div class="card"><div class="table-wrap"><table class="t">
       <thead><tr><th>Rate slot</th><th class="num">Rate / 30 sec (LKR)</th><th class="num">Programs</th><th></th></tr></thead>
       <tbody>${cats.map((c) => `

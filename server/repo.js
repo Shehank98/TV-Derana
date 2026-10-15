@@ -39,13 +39,16 @@ async function getRules() {
   return rows;
 }
 
-async function getClient(id) {
-  if (!id) return null;
+// An agency–client deal (which card prices it, the agreed discount).
+async function getDeal(agencyId, clientId) {
+  if (!agencyId || !clientId) return null;
   const { rows } = await query(`
-    SELECT cl.*, a.name AS agency_name, rc.name AS rate_card_name
-    FROM clients cl JOIN agencies a ON a.id = cl.agency_id
-    LEFT JOIN rate_cards rc ON rc.id = cl.rate_card_id
-    WHERE cl.id = $1`, [id]);
+    SELECT ac.*, a.name AS agency_name, cl.name AS client_name, rc.name AS rate_card_name
+    FROM agency_clients ac
+    JOIN agencies a ON a.id = ac.agency_id
+    JOIN clients cl ON cl.id = ac.client_id
+    LEFT JOIN rate_cards rc ON rc.id = ac.rate_card_id
+    WHERE ac.agency_id = $1 AND ac.client_id = $2`, [agencyId, clientId]);
   return rows[0] || null;
 }
 
@@ -57,17 +60,17 @@ async function getCard(id) {
   return { ...rows[0], items: Object.fromEntries(items.map((i) => [i.slot_id, { mode: i.mode, value: i.value }])) };
 }
 
-// Everything pricing.calculate() needs for one client.
-async function pricingContext(clientId) {
-  const [slots, programs, rules, settings, client] = await Promise.all([
-    getSlots(), getPrograms({ includeInactive: true }), getRules(), getSettings(), getClient(clientId),
+// Everything pricing.calculate() needs for one agency–client deal.
+async function pricingContext(agencyId, clientId) {
+  const [slots, programs, rules, deal] = await Promise.all([
+    getSlots(), getPrograms({ includeInactive: true }), getRules(), getDeal(agencyId, clientId),
   ]);
-  const card = client && client.pricing_type === 'rate_card' ? await getCard(client.rate_card_id) : null;
+  const card = deal && deal.rate_card_id ? await getCard(deal.rate_card_id) : null;
   return {
     slots: new Map(slots.map((s) => [s.id, s])),
     programs: new Map(programs.map((p) => [p.id, p])),
-    client, card, rules, settings,
+    deal, card, rules,
   };
 }
 
-module.exports = { getSettings, getSlots, getPrograms, getAliases, getRules, getClient, getCard, pricingContext };
+module.exports = { getSettings, getSlots, getPrograms, getAliases, getRules, getDeal, getCard, pricingContext };

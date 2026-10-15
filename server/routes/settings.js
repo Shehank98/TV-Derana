@@ -10,7 +10,6 @@ r.get('/settings', async (req, res) => {
 });
 
 const ALLOWED = {
-  tax_pct: (v) => num(v, 'Tax %', { min: 0, max: 100 }),
   currency: (v) => requireText(v, 'Currency'),
   section_labels: (v) => listOf(v),
   generic_item_words: (v) => listOf(v).map((w) => w.toUpperCase()),

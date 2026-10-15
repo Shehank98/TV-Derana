@@ -1,10 +1,13 @@
-# TV Derana — Ad Quotation System
+# TV Derana — Schedule Analysis System
 
 Upload an agency's campaign schedule (Excel). The system then:
-1. finds every program, duration and spot count in the sheet;
-2. matches each line to a TV Derana program. It uses the name first. If the name isn't recognised, it uses the **day + time belt**;
-3. prices each line with that client's deal (base rates, a flat discount, or a custom rate card);
-4. produces a quotation with an optional negotiated package price, which you can export to Excel and save.
+1. reads every program, day, time belt, duration and spot count;
+2. **auto-matches** each line to a TV Derana program. It uses the name first. If the name isn't clear, it uses the section heading or the **day + time belt**;
+3. lets you **switch off** any program or line the client doesn't want counted;
+4. shows a dashboard with the **Total Rate Card Value** and the two package options:
+   - **Option 01:** you enter the package value, and the discount % is worked out;
+   - **Option 02:** you enter the discount %, and the package value is worked out;
+5. exports a detailed **Excel** and **PDF** report (agency, client, month, schedule no, PT/NPT split, program analysis).
 
 Stack: **Node.js + Express**, **PostgreSQL**, plain **HTML / CSS / JavaScript** (no build step).
 
@@ -21,7 +24,9 @@ Stack: **Node.js + Express**, **PostgreSQL**, plain **HTML / CSS / JavaScript** 
 6. Deploy. On first start the app creates all tables and loads:
    - the TV Derana rate card (April 2025 PDF);
    - the program schedule (from the old system, with fixes);
-   - the sample agencies and clients.
+   - sample agencies, clients and rate cards.
+   Upgrading an earlier deployment? Migration `002` runs automatically. It converts clients to the new
+   agency-link model and **removes the old quotations** (replaced by schedules).
 
 Nothing else is required. `PORT` is set by Railway automatically. `railway.json` sets the start command and the health check (`/api/health`).
 
@@ -49,12 +54,14 @@ npm test        # matching + pricing tests (no database needed)
 
 | Page | What it's for |
 |---|---|
-| **New quotation** | 1 pick agency & client → 2 upload Excel → 3 check matches → 4 quotation, package price, export, save |
-| **Saved quotations** | Search, reopen, download or delete past quotations |
-| **Agencies & clients** | Add agencies and their clients; set each client's pricing |
+| **Dashboard** | Totals for a month / agency: schedules, rate card value, packages, discount, PT/NPT, top clients |
+| **New schedule** | Agency → Client → Month → Schedule No → upload Excel → **Proceed** → check mappings → **Continue** |
+| **Schedule dashboard** | Option 01 / Option 02, PT/NPT split, program analysis, Excel & PDF reports |
+| **Schedules** | All schedules, filtered by month, agency, client or number |
+| **Agencies & clients** | Link clients to agencies, set each deal's rate card and agreed discount, **move a client to another agency** (history is kept) |
 | **Client rate cards** | Custom cards: a fixed rate or a % discount per rate slot, plus a default % |
-| **Base rate card** | The published TV Derana rates per 30 seconds (edit inline) |
-| **Programs & time belts** | What airs when, which slot prices it, and the names agencies use for it. Has a week view and a "Test matching" tool. |
-| **Settings** | Special item rates (crawlers), tax %, schedule-reading words |
+| **Base rate card** | Published TV Derana rates per 30 seconds (edit inline) |
+| **Programs & time belts** | What airs when and which slot prices it; aliases; week view; "Test matching" tool |
+| **Settings** | Special item rates (crawlers) and words used to read schedules |
 
 See `CLAUDE.md` for the full logic (matching, calculations, data model).

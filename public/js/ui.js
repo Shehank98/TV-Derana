@@ -37,7 +37,7 @@ export async function api(path, { method = 'GET', body, raw, headers = {} } = {}
     err.status = res.status;
     throw err;
   }
-  if (ct.includes('spreadsheetml')) return res;
+  if (ct.includes('spreadsheetml') || ct.includes('pdf')) return res;
   return ct.includes('json') ? res.json() : res.text();
 }
 
@@ -58,7 +58,7 @@ export async function run(fn, btn) {
 export async function download(res) {
   const blob = await res.blob();
   const cd = res.headers.get('content-disposition') || '';
-  const name = (cd.match(/filename="([^"]+)"/) || [])[1] || 'quotation.xlsx';
+  const name = (cd.match(/filename="([^"]+)"/) || [])[1] || 'schedule-report';
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
@@ -122,7 +122,7 @@ export function setHeader(title, sub = '', actionsHtml = '') {
   document.getElementById('pageTitle').textContent = title;
   document.getElementById('pageSub').textContent = sub;
   document.getElementById('pageActions').innerHTML = actionsHtml;
-  document.title = `${title} · TV Derana Quotations`;
+  document.title = `${title} · TV Derana Schedules`;
 }
 
 export const icon = {
@@ -149,3 +149,12 @@ export const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ } },
   del(k) { try { localStorage.removeItem(k); } catch { /* storage unavailable */ } },
 };
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// "2026-10" → "October 2026" (or "Oct 26" with short)
+export const monthLabel = (key, shortForm = false) => {
+  const [y, m] = String(key || '').split('-').map(Number);
+  if (!y || !m) return '';
+  return shortForm ? `${MONTHS[m - 1].slice(0, 3)} ${String(y).slice(2)}` : `${MONTHS[m - 1]} ${y}`;
+};
+export const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };

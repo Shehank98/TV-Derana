@@ -1,4 +1,6 @@
-// Agencies, their clients, and custom client rate cards.
+// Agencies, clients, the agency–client deals that link them, and client rate cards.
+// A client exists once and can be linked to an agency; when a client moves to a
+// new agency the old link is ended (kept as history) and a new one is created.
 const express = require('express');
 const { query, tx } = require('../db');
 const repo = require('../repo');
@@ -6,14 +8,23 @@ const { httpError, requireText, optText, num, id, pgFriendly } = require('./util
 
 const r = express.Router();
 
-// ── Agencies (with nested clients) ──
+const LINKS_SQL = `
+  SELECT ac.*, a.name AS agency_name, cl.name AS client_name, rc.name AS rate_card_name,
+         (SELECT count(*)::int FROM schedules s WHERE s.agency_id = ac.agency_id AND s.client_id = ac.client_id) AS schedule_count
+  FROM agency_clients ac
+  JOIN agencies a ON a.id = ac.agency_id
+  JOIN clients cl ON cl.id = ac.client_id
+  LEFT JOIN rate_cards rc ON rc.id = ac.rate_card_id`;
+
+// ── Agencies (with their linked clients) ──
 r.get('/agencies', async (req, res) => {
   const { rows: agencies } = await query('SELECT * FROM agencies ORDER BY name');
-  const { rows: clients } = await query(`
-    SELECT cl.*, rc.name AS rate_card_name,
-           (SELECT count(*)::int FROM quotations q WHERE q.client_id = cl.id) AS quote_count
-    FROM clients cl LEFT JOIN rate_cards rc ON rc.id = cl.rate_card_id ORDER BY cl.name`);
-  res.json(agencies.map((a) => ({ ...a, clients: clients.filter((c) => c.agency_id === a.id) })));
+  const { rows: links } = await query(`${LINKS_SQL} ORDER BY cl.name`);
+  res.json(agencies.map((a) => ({
+    ...a,
+    clients: links.filter((l) => l.agency_id === a.id && l.active),
+    past_clients: links.filter((l) => l.agency_id === a.id && !l.active),
+  })));
 });
 
 const agencyFields = (b) => [requireText(b.name, 'Agency name'), optText(b.contact), optText(b.email), optText(b.phone), optText(b.notes)];
@@ -37,28 +48,48 @@ r.delete('/agencies/:id', async (req, res) => {
   res.status(204).end();
 });
 
-// ── Clients ──
-function clientFields(b) {
-  const type = b.pricing_type || 'base';
-  if (!['base', 'discount', 'rate_card'].includes(type)) throw httpError(400, 'Invalid pricing type');
-  const discount = type === 'discount' ? num(b.discount_pct, 'Discount %', { min: 0, max: 100 }) : 0;
-  const card = type === 'rate_card' ? id(b.rate_card_id) : null;
-  return [id(b.agency_id), requireText(b.name, 'Client name'), type, discount, card, optText(b.notes)];
+// ── Clients (with all their agency links, current first) ──
+r.get('/clients', async (req, res) => {
+  const { rows: clients } = await query(`
+    SELECT cl.*, (SELECT count(*)::int FROM schedules s WHERE s.client_id = cl.id) AS schedule_count
+    FROM clients cl ORDER BY cl.name`);
+  const { rows: links } = await query(`${LINKS_SQL} ORDER BY ac.active DESC, ac.since DESC`);
+  res.json(clients.map((c) => ({ ...c, links: links.filter((l) => l.client_id === c.id) })));
+});
+
+function dealFields(b) {
+  return {
+    rate_card_id: b.rate_card_id ? id(b.rate_card_id) : null,
+    discount_pct: num(b.discount_pct || 0, 'Agreed discount %', { min: 0, max: 100 }),
+    notes: optText(b.deal_notes ?? b.notes),
+  };
+}
+
+// Creates or re-activates the link between an agency and a client.
+async function linkClient(c, agencyId, clientId, deal) {
+  const { rows } = await c.query(`
+    INSERT INTO agency_clients(agency_id, client_id, rate_card_id, discount_pct, notes, active, since, ended)
+    VALUES ($1,$2,$3,$4,$5,TRUE,CURRENT_DATE,NULL)
+    ON CONFLICT (agency_id, client_id) DO UPDATE SET rate_card_id=EXCLUDED.rate_card_id, discount_pct=EXCLUDED.discount_pct,
+      notes=EXCLUDED.notes, active=TRUE, since=CURRENT_DATE, ended=NULL
+    RETURNING *`, [agencyId, clientId, deal.rate_card_id, deal.discount_pct, deal.notes]);
+  return rows[0];
 }
 
 r.post('/clients', async (req, res) => {
-  try {
-    const { rows } = await query(
-      'INSERT INTO clients(agency_id, name, pricing_type, discount_pct, rate_card_id, notes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      clientFields(req.body));
-    res.status(201).json(rows[0]);
-  } catch (e) { throw pgFriendly(e); }
+  const b = req.body;
+  const out = await tx(async (c) => {
+    const { rows } = await c.query('INSERT INTO clients(name, notes) VALUES ($1,$2) RETURNING *',
+      [requireText(b.name, 'Client name'), optText(b.notes)]).catch((e) => { throw pgFriendly(e); });
+    if (b.agency_id) await linkClient(c, id(b.agency_id), rows[0].id, dealFields(b));
+    return rows[0];
+  });
+  res.status(201).json(out);
 });
 r.put('/clients/:id', async (req, res) => {
   try {
-    const { rows } = await query(
-      `UPDATE clients SET agency_id=$1, name=$2, pricing_type=$3, discount_pct=$4, rate_card_id=$5, notes=$6
-       WHERE id=$7 RETURNING *`, [...clientFields(req.body), id(req.params.id)]);
+    const { rows } = await query('UPDATE clients SET name=$1, notes=$2 WHERE id=$3 RETURNING *',
+      [requireText(req.body.name, 'Client name'), optText(req.body.notes), id(req.params.id)]);
     if (!rows[0]) throw httpError(404, 'Client not found');
     res.json(rows[0]);
   } catch (e) { throw pgFriendly(e); }
@@ -68,13 +99,44 @@ r.delete('/clients/:id', async (req, res) => {
   res.status(204).end();
 });
 
+// Move a client to another agency: current links end, the new link starts today.
+r.post('/clients/:id/move', async (req, res) => {
+  const clientId = id(req.params.id);
+  const to = id(req.body.agency_id);
+  const link = await tx(async (c) => {
+    await c.query(`UPDATE agency_clients SET active=FALSE, ended=CURRENT_DATE
+                   WHERE client_id=$1 AND active AND agency_id <> $2`, [clientId, to]);
+    return linkClient(c, to, clientId, dealFields(req.body));
+  });
+  res.json(link);
+});
+
+// ── Agency–client deals ──
+r.post('/agency-clients', async (req, res) => {
+  const b = req.body;
+  const link = await tx((c) => linkClient(c, id(b.agency_id), id(b.client_id), dealFields(b)));
+  res.status(201).json(link);
+});
+r.put('/agency-clients/:id', async (req, res) => {
+  const d = dealFields(req.body);
+  const { rows } = await query(`UPDATE agency_clients SET rate_card_id=$1, discount_pct=$2, notes=$3 WHERE id=$4 RETURNING *`,
+    [d.rate_card_id, d.discount_pct, d.notes, id(req.params.id)]);
+  if (!rows[0]) throw httpError(404, 'Link not found');
+  res.json(rows[0]);
+});
+// Ending a link keeps it as history (schedules still show the agency).
+r.delete('/agency-clients/:id', async (req, res) => {
+  await query('UPDATE agency_clients SET active=FALSE, ended=CURRENT_DATE WHERE id=$1', [id(req.params.id)]);
+  res.status(204).end();
+});
+
 // ── Client rate cards ──
 r.get('/rate-cards', async (req, res) => {
   const { rows } = await query(`
     SELECT rc.*, (SELECT count(*)::int FROM rate_card_items i WHERE i.rate_card_id = rc.id) AS item_count,
-           COALESCE((SELECT json_agg(json_build_object('id', cl.id, 'name', cl.name, 'agency', a.name) ORDER BY cl.name)
-                     FROM clients cl JOIN agencies a ON a.id = cl.agency_id
-                     WHERE cl.rate_card_id = rc.id AND cl.pricing_type = 'rate_card'), '[]') AS clients
+           COALESCE((SELECT json_agg(json_build_object('client', cl.name, 'agency', a.name) ORDER BY cl.name)
+                     FROM agency_clients ac JOIN clients cl ON cl.id = ac.client_id JOIN agencies a ON a.id = ac.agency_id
+                     WHERE ac.rate_card_id = rc.id AND ac.active), '[]') AS used_by
     FROM rate_cards rc ORDER BY rc.name`);
   res.json(rows);
 });
@@ -126,13 +188,9 @@ r.put('/rate-cards/:id', async (req, res) => {
   res.json(card);
 });
 
+// Deals on this card fall back to the base rate card (rate_card_id → NULL).
 r.delete('/rate-cards/:id', async (req, res) => {
-  const cid = id(req.params.id);
-  // Clients on this card fall back to the base rate card.
-  await tx(async (c) => {
-    await c.query(`UPDATE clients SET pricing_type='base', rate_card_id=NULL WHERE rate_card_id=$1`, [cid]);
-    await c.query('DELETE FROM rate_cards WHERE id=$1', [cid]);
-  });
+  await query('DELETE FROM rate_cards WHERE id=$1', [id(req.params.id)]);
   res.status(204).end();
 });
 

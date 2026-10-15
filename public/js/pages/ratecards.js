@@ -19,11 +19,11 @@ async function list() {
     <thead><tr><th>Rate card</th><th class="num">Default discount</th><th class="num">Slot overrides</th><th>Used by</th><th></th></tr></thead><tbody>
     ${cards.map((c) => `<tr><td><a href="#/rate-cards/${c.id}"><b>${esc(c.name)}</b></a>${c.notes ? `<div class="small muted">${esc(c.notes)}</div>` : ''}</td>
       <td class="num">${pct(c.default_discount_pct, 2)}</td><td class="num">${c.item_count}</td>
-      <td>${c.clients.map((x) => `<span class="chip plain">${esc(x.name)} <span class="muted">· ${esc(x.agency)}</span></span>`).join(' ') || '<span class="muted">Not assigned</span>'}</td>
+      <td>${c.used_by.map((x) => `<span class="chip plain">${esc(x.client)} <span class="muted">· ${esc(x.agency)}</span></span>`).join(' ') || '<span class="muted">Not assigned</span>'}</td>
       <td class="actions"><a class="btn btn-sm" href="#/rate-cards/${c.id}">${icon.edit} Edit</a> <button class="btn btn-sm" data-dup="${c.id}" title="Duplicate">${icon.copy}</button></td></tr>`).join('')
       || '<tr><td colspan="5" class="empty">No custom rate cards yet. Clients use the base rate card or a flat discount until you create one.</td></tr>'}
     </tbody></table></div></div>
-    <p class="muted small">Tip: assign a card to a client under <a href="#/clients">Agencies &amp; clients</a> → Edit client → “Custom rate card”.</p>`;
+    <p class="muted small">Tip: assign a card to a client under <a href="#/clients">Agencies &amp; clients</a> → Deal → Rate card.</p>`;
   el.querySelectorAll('[data-dup]').forEach((b) => b.addEventListener('click', () => createCard(cards, cards.find((c) => c.id === Number(b.dataset.dup)))));
 }
 
@@ -150,8 +150,8 @@ async function editor(id) {
   }, e.currentTarget);
 
   const del = async () => {
-    const users = (await api('/rate-cards')).find((c) => c.id === Number(id))?.clients || [];
-    const msg = users.length ? `${users.length} client(s) use this card and will go back to the base rate card.` : 'No clients use this card.';
+    const users = (await api('/rate-cards')).find((c) => c.id === Number(id))?.used_by || [];
+    const msg = users.length ? `${users.length} client deal(s) use this card and will go back to the base rate card.` : 'No clients use this card.';
     if (!(await confirmBox('Delete rate card', `Delete <b>${esc(card.name)}</b>? ${msg}`))) return;
     await run(() => api(`/rate-cards/${id}`, { method: 'DELETE' }));
     toast('Rate card deleted');

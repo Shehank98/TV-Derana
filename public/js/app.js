@@ -1,10 +1,12 @@
-// Hash router: #/quote/new, #/quote/12, #/quotes, #/clients, #/rate-cards, #/rate-cards/3, …
+// Hash router.
 import { esc } from './ui.js';
 
 const routes = [
-  [/^\/quote\/new$/, 'quote', () => ({})],
-  [/^\/quote\/(\d+)$/, 'quote', (m) => ({ id: Number(m[1]) })],
-  [/^\/quotes$/, 'quotes', () => ({})],
+  [/^\/dashboard$/, 'dashboard', () => ({})],
+  [/^\/new$/, 'new', () => ({})],
+  [/^\/schedule\/(\d+)\/edit$/, 'new', (m) => ({ id: Number(m[1]) })],
+  [/^\/schedule\/(\d+)$/, 'schedule', (m) => ({ id: Number(m[1]) })],
+  [/^\/schedules$/, 'schedules', () => ({})],
   [/^\/clients$/, 'clients', () => ({})],
   [/^\/rate-cards$/, 'ratecards', () => ({})],
   [/^\/rate-cards\/(\d+)$/, 'ratecards', (m) => ({ id: Number(m[1]) })],
@@ -13,20 +15,22 @@ const routes = [
   [/^\/settings$/, 'settings', () => ({})],
 ];
 
-const navKey = { quote: 'quote', quotes: 'quotes', clients: 'clients', ratecards: 'rate-cards', baserates: 'base-rates', programs: 'programs', settings: 'settings' };
+const navKey = { dashboard: 'dashboard', new: 'new', schedule: 'schedules', schedules: 'schedules', clients: 'clients',
+  ratecards: 'rate-cards', baserates: 'base-rates', programs: 'programs', settings: 'settings' };
 
 let current = null;
 
 async function render() {
-  const path = (location.hash || '#/quote/new').slice(1);
+  const path = (location.hash || '#/dashboard').slice(1);
   let found = null;
   for (const [re, page, params] of routes) {
     const m = path.match(re);
     if (m) { found = { page, params: params(m) }; break; }
   }
-  if (!found) { location.hash = '#/quote/new'; return; }
+  if (!found) { location.hash = '#/dashboard'; return; }
 
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey[found.page]));
+  document.querySelector('.new-btn').classList.toggle('active', found.page === 'new' && !found.params.id);
   document.getElementById('side').classList.remove('open');
 
   const el = document.getElementById('page');
