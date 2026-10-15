@@ -103,16 +103,16 @@ function week(list) {
       <div class="tl-hours"><div></div><div class="scale">${Array.from({ length: 13 }, (_, i) => `<span style="left:${(i * 2 / 24) * 100}%">${String(i * 2).padStart(2, '0')}:00</span>`).join('')}</div></div>
       ${lanes}</div>
     <div class="legend"><span style="--c:#ffe3e7">Prime time</span><span style="--c:#e9ecf3">Non-prime</span><span style="--c:#eceef4">Generic time belt</span>${poya.length ? `<span style="--c:transparent">Poya-only programs: ${poya.map((p) => esc(p.name)).join(', ')}</span>` : ''}</div>
-    <p class="small muted">Click a block to edit it. Overlapping blocks usually mean a generic time belt under a named show — named shows always win when the name matches.</p></div>`;
+    <p class="small muted">Click a block to edit it. Overlapping blocks usually mean a generic time belt under a named show; named shows always win when the name matches.</p></div>`;
 }
 
 async function edit(p) {
   const saved = await modal({
-    title: p.id ? `Edit — ${p.name}` : 'Add program',
+    title: p.id ? `Edit ${p.name}` : 'Add program',
     wide: true,
     body: `<div class="form-grid">
       <label class="field">Program name<input name="name" value="${esc(p.name || '')}"></label>
-      <label class="field">Rate slot<select name="slot_id">${cats.map((c) => `<optgroup label="${esc(c.name)}">${c.slots.map((s) => `<option value="${s.id}" ${s.id === p.slot_id ? 'selected' : ''}>${esc(s.name)} — ${money0(s.rate_30s)}</option>`).join('')}</optgroup>`).join('')}</select></label>
+      <label class="field">Rate slot<select name="slot_id">${cats.map((c) => `<optgroup label="${esc(c.name)}">${c.slots.map((s) => `<option value="${s.id}" ${s.id === p.slot_id ? 'selected' : ''}>${esc(s.name)} - ${money0(s.rate_30s)}</option>`).join('')}</optgroup>`).join('')}</select></label>
       <label class="field">Day pattern<input name="day_pattern" value="${esc(p.day_pattern || '')}" placeholder="Wkdays, Wkends, Daily, Sat, Tue-Fri, Poya Days">
         <span class="help" id="dayHelp">${esc(p.days_label || '')}</span></label>
       <div class="form-grid" style="gap:10px">
@@ -173,7 +173,7 @@ async function testMatch() {
           start: b.querySelector('#ts').value, end: b.querySelector('#te').value } }));
         if (!res) return;
         const byId = new Map(programs.map((p) => [p.id, p]));
-        b.querySelector('#tr').innerHTML = `<div class="note ${res.status === 'matched' ? '' : 'warn'}"><b>${esc(res.status.toUpperCase())}</b> — ${esc(res.reason)}</div>
+        b.querySelector('#tr').innerHTML = `<div class="note ${res.status === 'matched' ? '' : 'warn'}"><b>${esc(res.status.toUpperCase())}</b> - ${esc(res.reason)}</div>
           <table class="t" style="margin-top:10px"><thead><tr><th>Candidate</th><th class="num">Name</th><th class="num">Time</th><th class="num">Day</th><th class="num">Total</th></tr></thead><tbody>
           ${res.candidates.map((c, i) => { const p = byId.get(c.program_id); return `<tr ${i === 0 ? 'style="font-weight:700"' : ''}><td>${esc(p?.name)} <span class="small muted">${esc(p?.day_pattern)} ${dbTime(p?.start_time)}–${dbTime(p?.end_time)} · via ${esc(c.basis)}</span></td>
             <td class="num">${Math.round(c.name * 100)}%</td><td class="num">${Math.round(c.time * 100)}%</td><td class="num">${Math.round(c.day * 100)}%</td><td class="num">${Math.round(c.total * 100)}%</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty">No program airs on those days/times.</td></tr>'}

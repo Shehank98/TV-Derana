@@ -4,10 +4,10 @@ export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&a
 
 const nf0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 const nf2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-export const money = (n) => (n === null || n === undefined || n === '' ? '—' : nf2.format(Number(n)));
-export const money0 = (n) => (n === null || n === undefined || n === '' ? '—' : nf0.format(Number(n)));
-export const num = (n, d = 2) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('en-US', { maximumFractionDigits: d }));
-export const pct = (n, d = 1) => (n === null || n === undefined ? '—' : `${Number(n).toFixed(d)}%`);
+export const money = (n) => (n === null || n === undefined || n === '' ? '-' : nf2.format(Number(n)));
+export const money0 = (n) => (n === null || n === undefined || n === '' ? '-' : nf0.format(Number(n)));
+export const num = (n, d = 2) => (n === null || n === undefined ? '-' : Number(n).toLocaleString('en-US', { maximumFractionDigits: d }));
+export const pct = (n, d = 1) => (n === null || n === undefined ? '-' : `${Number(n).toFixed(d)}%`);
 export const hhmm = (min) => {
   if (min === null || min === undefined || min === '') return '';
   const t = ((Number(min) % 1440) + 1440) % 1440;

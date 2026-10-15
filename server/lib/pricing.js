@@ -110,7 +110,7 @@ function calculate(lines, ctx, opts = {}) {
   const group = (key) => {
     const m = new Map();
     for (const l of out) {
-      const k = l[key] || '—';
+      const k = l[key] || '-';
       if (!m.has(k)) m.set(k, { name: k, ...acc() });
       add(m.get(k), l);
     }

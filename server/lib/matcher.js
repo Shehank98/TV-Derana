@@ -94,7 +94,7 @@ function matchLine(line, programs, aliasIndex, settings = {}) {
   const learned = aliasIndex && aliasIndex.has(lineNorm.key) && aliasIndex.get(lineNorm.key).has(best.program_id);
   if (best.basis === 'none' || best.name < 0.5) {
     status = 'belt';
-    reason = 'Name not recognised — matched by day & time belt';
+    reason = 'Name not recognised, matched by day & time belt';
   } else if (best.name >= autoThr && best.time >= 0.5 && best.day >= 0.5) {
     status = 'matched';
     reason = learned ? 'Learned alias' : best.basis === 'theme' ? `Matched via section "${line.theme}"` : 'Name, day & time match';
@@ -106,7 +106,7 @@ function matchLine(line, programs, aliasIndex, settings = {}) {
   const second = candidates[1];
   if (status === 'matched' && second && best.total - second.total < 0.03 && second.program_id !== best.program_id) {
     status = 'review';
-    reason = 'Two programs fit almost equally — please confirm';
+    reason = 'Two programs fit almost equally, please confirm';
   }
   return { program_id: best.program_id, status, confidence: best.total, reason, candidates };
 }

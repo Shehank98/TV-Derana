@@ -8,7 +8,7 @@ const F = store.get('tvd_sched_filters', { month: '', agency_id: '', client_id: 
 
 export async function render(root) {
   el = root;
-  setHeader('Schedules', 'Every saved schedule — filter by month, agency or client', `<a class="btn btn-primary" href="#/new">${icon.plus} New schedule</a>`);
+  setHeader('Schedules', 'Every saved schedule, filtered by month, agency or client', `<a class="btn btn-primary" href="#/new">${icon.plus} New schedule</a>`);
   [agencies, clients] = await Promise.all([api('/agencies'), api('/clients')]);
   el.innerHTML = `
     <div class="card card-pad" style="margin-bottom:16px"><div class="toolbar" style="margin:0">

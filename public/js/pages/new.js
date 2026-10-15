@@ -15,7 +15,7 @@ export async function render(root, params) {
   [agencies, programs] = await Promise.all([api('/agencies'), api('/programs')]);
   programById = new Map(programs.map((p) => [p.id, p]));
   S = { step: 1, id: null, agency_id: '', client_id: '', month: thisMonth(), schedule_no: '', file: null, file_name: '',
-    lines: [], extras: [], open: new Set(), calc: null, existing: null };
+    lines: [], extras: [], open: new Set(), calc: null, existing: null, reading: false, upError: null };
   if (params.id) {
     const s = await api(`/schedules/${params.id}`);
     Object.assign(S, { id: s.id, agency_id: s.agency_id || '', client_id: s.client_id || '', month: s.month, schedule_no: s.schedule_no,
@@ -26,7 +26,7 @@ export async function render(root, params) {
 
 function header() {
   setHeader(S.id ? `Edit schedule ${S.existing.schedule_no}` : 'New schedule',
-    S.id ? `${S.existing.client_name} · ${monthLabel(S.existing.month)}` : 'Upload an agency schedule — programs are matched automatically',
+    S.id ? `${S.existing.client_name} · ${monthLabel(S.existing.month)}` : 'Upload an agency schedule and programs are matched automatically',
     S.id ? `<a class="btn" href="#/schedule/${S.id}">${icon.back} Back to dashboard</a>` : '');
 }
 
@@ -70,20 +70,38 @@ function step1() {
     ${ag && !ag.clients.length ? `<div class="note warn" style="margin-top:14px">Link a client to ${esc(ag.name)} under <a href="#/clients">Agencies &amp; clients</a>.</div>` : ''}
 
     <h2 style="margin-top:22px">Agency schedule (Excel)</h2>
-    ${S.file || S.file_name ? `
-      <div class="file-pill">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15l2 2 4-4"/></svg>
-        <div style="flex:1"><b>${esc(S.file ? S.file.name : S.file_name)}</b>
-          <div class="small muted">${S.file ? `${(S.file.size / 1024).toFixed(0)} KB · will be read when you proceed` : `${S.lines.length} lines already mapped`}</div></div>
-        <label class="btn btn-sm">Change file<input type="file" id="file" accept=".xlsx,.xlsm" hidden></label>
-      </div>` : `
-      <label class="drop" id="drop">${icon.upload}<b>Drop the schedule Excel here</b><span class="muted">or click to choose an .xlsx file</span>
-        <input type="file" id="file" accept=".xlsx,.xlsm" hidden></label>`}
+    ${uploadBox()}
     <p class="small muted" style="margin:10px 0 0">Needs columns PROGRAM, DAY, START / END TIME, DUR and TOTAL SPOTS (any order). Section headings like “CASH BONANZA” are understood.</p>
 
     <div class="row" style="margin-top:20px"><span class="spacer"></span>
-      <button class="btn btn-primary" id="proceed" ${ready ? '' : 'disabled'}>Proceed ${icon.next}</button></div>
+      <button class="btn btn-primary" id="proceed" ${ready && !S.upError && !S.reading ? '' : 'disabled'}>Proceed ${icon.next}</button></div>
   </div>`;
+}
+
+const fileIcon = (ok) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="${ok ? 'M14 2v6h6M9 15l2 2 4-4' : 'M14 2v6h6M10 12l4 4M14 12l-4 4'}"/></svg>`;
+const fileInput = '<input type="file" id="file" accept=".xlsx,.xlsm" hidden>';
+
+// Upload area states: empty → chosen → reading → (error | mappings). Editing shows the current file.
+function uploadBox() {
+  if (!S.file && !S.file_name) {
+    return `<label class="drop" id="drop">${icon.upload}<b>Drop the schedule Excel here</b>
+      <span class="muted">or <u>click to choose</u> an .xlsx file</span>${fileInput}</label>`;
+  }
+  const name = S.file ? S.file.name : S.file_name;
+  const size = S.file ? `${Math.max(1, Math.round(S.file.size / 1024))} KB` : '';
+  if (S.reading) {
+    return `<div class="file-pill reading" id="drop"><span class="spin"></span>
+      <div class="fp-text"><b>${esc(name)}</b><div class="small muted">Reading the schedule and matching programs…</div></div></div>`;
+  }
+  if (S.upError) {
+    return `<div class="file-pill error" id="drop">${fileIcon(false)}
+      <div class="fp-text"><b>${esc(name)}</b><div class="small">${esc(S.upError)}</div></div>
+      <label class="btn btn-sm">Choose another file${fileInput}</label></div>`;
+  }
+  return `<div class="file-pill" id="drop">${fileIcon(true)}
+    <div class="fp-text"><b>${esc(name)}</b><div class="small muted">${S.file ? `${size} · ready, it will be read when you click Proceed` : `${S.lines.length} lines already mapped · upload again to replace`}</div></div>
+    <label class="btn btn-sm">Change file${fileInput}</label>
+    ${S.file ? '<button class="btn btn-sm btn-ghost" id="removeFile" title="Remove file">✕</button>' : ''}</div>`;
 }
 
 function bind1() {
@@ -92,29 +110,48 @@ function bind1() {
   el.querySelector('#month').onchange = (e) => { S.month = e.target.value; draw(); };
   const sno = el.querySelector('#sno');
   sno.oninput = () => { S.schedule_no = sno.value; el.querySelector('#proceed').disabled = !(S.agency_id && S.client_id && S.month && S.schedule_no.trim() && (S.file || S.lines.length)); };
-  const file = el.querySelector('#file');
   const take = (f) => {
     if (!f) return;
-    if (!/\.xls[xm]$/i.test(f.name)) return toast('Please choose an .xlsx file (old .xls: open in Excel → Save As .xlsx)', 'error');
-    S.file = f; draw();
+    S.upError = null;
+    if (!/\.xls[xm]$/i.test(f.name)) {
+      S.file = f;
+      S.upError = /\.xls$/i.test(f.name)
+        ? 'This is an old .xls file. Open it in Excel, choose Save As → Excel Workbook (.xlsx), then upload that.'
+        : 'This is not an Excel file. Please upload the agency schedule as .xlsx.';
+    } else {
+      S.file = f;
+    }
+    draw();
   };
-  file.onchange = () => take(file.files[0]);
+  const file = el.querySelector('#file');
+  if (file) file.onchange = () => take(file.files[0]);
+  const rm = el.querySelector('#removeFile');
+  if (rm) rm.onclick = () => { S.file = null; S.upError = null; draw(); };
   const drop = el.querySelector('#drop');
-  if (drop) {
+  if (drop && !S.reading) {
     ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
     ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
     drop.addEventListener('drop', (e) => take(e.dataTransfer.files[0]));
   }
-  el.querySelector('#proceed').onclick = (e) => run(async () => {
+  el.querySelector('#proceed').onclick = async () => {
     if (S.file) {
-      const res = await api('/schedules/parse', { method: 'POST', raw: S.file });
-      S.lines = res.lines; S.extras = res.extras; S.file_name = S.file.name; S.file = null;
-      if (!S.lines.length) throw new Error('No priced lines found in this file (all rows had zero spots or no duration).');
+      S.reading = true; draw();
+      try {
+        const res = await api('/schedules/parse', { method: 'POST', raw: S.file });
+        if (!res.lines.length) throw new Error('No priced lines found: every row has zero spots or no duration.');
+        S.lines = res.lines; S.extras = res.extras; S.file_name = S.file.name; S.file = null;
+      } catch (err) {
+        S.reading = false;
+        S.upError = err.message;
+        draw();
+        return;
+      }
+      S.reading = false;
     }
     S.step = 2;
-    await recalc();
+    await run(recalc);
     draw();
-  }, e.currentTarget);
+  };
 }
 
 // ── Step 2: mappings ─────────────────────────────────────────────────────
@@ -141,7 +178,7 @@ function programSelect(l, i) {
   const cands = (l.match?.candidates || []).filter((c) => programById.has(c.program_id));
   const candIds = new Set(cands.map((c) => c.program_id));
   const label = (p) => `${p.name} · ${p.day_pattern} ${dbTime(p.start_time)}–${dbTime(p.end_time)}`;
-  let html = l.program_id ? '' : '<option value="">— Choose a program —</option>';
+  let html = l.program_id ? '' : '<option value="">Choose a program…</option>';
   if (cands.length) html += `<optgroup label="Best fits">${cands.map((c) => { const p = programById.get(c.program_id); return `<option value="${p.id}" ${p.id === l.program_id ? 'selected' : ''}>${esc(label(p))} (${Math.round(c.total * 100)}%)</option>`; }).join('')}</optgroup>`;
   const byCat = new Map();
   for (const p of programs) {
@@ -158,9 +195,9 @@ const prime = (p) => (p ? (p.is_prime ? '<span class="chip pt">PT</span>' : '<sp
 function lineRow(l, i, { showSelect = true } = {}) {
   const v = lineValue(l);
   return `<div class="mline ${isOff(l) ? 'off' : ''}">
-    <label class="switch" title="${isOff(l) ? 'Removed — click to include' : 'Included — click to remove'}"><input type="checkbox" data-line="${i}" ${isOff(l) ? '' : 'checked'}><span></span></label>
+    <label class="switch" title="${isOff(l) ? 'Removed: click to include' : 'Included: click to remove'}"><input type="checkbox" data-line="${i}" ${isOff(l) ? '' : 'checked'}><span></span></label>
     <div class="ag"><b>${esc(l.program)}</b><div class="small muted">${esc(l.theme || '')}</div></div>
-    <div class="small">${esc(l.day || '—')}<div class="muted">${hhmm(l.start)}–${hhmm(l.end)}</div></div>
+    <div class="small">${esc(l.day || '-')}<div class="muted">${hhmm(l.start)}–${hhmm(l.end)}</div></div>
     <div class="num">${num(l.dur, 0)}s</div>
     <div class="num">${num(l.spots, 0)} spot${Number(l.spots) === 1 ? '' : 's'}</div>
     <div>${showSelect ? programSelect(l, i) : ''}</div>

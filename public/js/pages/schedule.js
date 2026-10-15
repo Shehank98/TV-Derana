@@ -27,7 +27,7 @@ function draw() {
     <div class="card card-pad"><div class="info-strip">
       ${[['Agency', s.agency_name], ['Client', s.client_name], ['Campaign month', monthLabel(s.month)], ['Schedule No', s.schedule_no],
     ['Rate card', s.rate_card_name || 'Base rate card'], ['Agreed discount', `${num(deal.agreed_discount || 0)}%`],
-    ['Source file', s.file_name || '—'], ['Last saved', date(s.updated_at)]]
+    ['Source file', s.file_name || '-'], ['Last saved', date(s.updated_at)]]
     .map(([k, v]) => `<div><div class="k">${k}</div><div class="v" title="${esc(v)}">${esc(v)}</div></div>`).join('')}
     </div></div>
 
@@ -41,8 +41,8 @@ function draw() {
     <div>
       <div class="row" style="margin-bottom:10px"><h2 style="margin:0">Package options</h2><span class="spacer"></span><span class="saved" id="saved"></span></div>
       <div class="options">
-        ${optionCard(1, 'Option 01 — Package Value to Discount', t)}
-        ${optionCard(2, 'Option 02 — Discount to Package Value', t)}
+        ${optionCard(1, 'Option 01 - Package Value to Discount', t)}
+        ${optionCard(2, 'Option 02 - Discount to Package Value', t)}
       </div>
     </div>
 
@@ -79,10 +79,10 @@ function optionCard(n, title, t) {
   const sel = t.selected_option === n && o;
   const pkgCell = n === 1
     ? `<input class="hl" id="o1" inputmode="decimal" placeholder="Enter package value" value="${s.option1_package ?? ''}">`
-    : `<span id="o2pkg">${o ? money(o.package) : '—'}</span>`;
+    : `<span id="o2pkg">${o ? money(o.package) : '-'}</span>`;
   const discCell = n === 2
     ? `<input class="hl" id="o2" inputmode="decimal" placeholder="Enter discount %" value="${s.option2_discount ?? ''}">`
-    : `<span id="o1disc">${o ? pct(o.discount_pct, 1) : '—'}</span>`;
+    : `<span id="o1disc">${o ? pct(o.discount_pct, 1) : '-'}</span>`;
   return `<div class="opt ${sel ? 'sel' : ''}" id="opt${n}">
     <h3>${title}</h3>
     <label class="use"><input type="radio" name="useopt" value="${n}" ${t.selected_option === n ? 'checked' : ''}> Use in report</label>
@@ -160,14 +160,14 @@ function bind() {
   el.querySelector('#o1').addEventListener('input', (e) => {
     s.option1_package = parse(e.target.value);
     const trv = s.result.totals.trv;
-    el.querySelector('#o1disc').textContent = s.option1_package !== null && trv ? pct((1 - s.option1_package / trv) * 100, 1) : '—';
+    el.querySelector('#o1disc').textContent = s.option1_package !== null && trv ? pct((1 - s.option1_package / trv) * 100, 1) : '-';
     if (s.option1_package !== null) s.selected_option = 1;
     save('o1');
   });
   el.querySelector('#o2').addEventListener('input', (e) => {
     const d = parse(e.target.value);
     s.option2_discount = d !== null && d <= 100 ? d : null;
-    el.querySelector('#o2pkg').textContent = s.option2_discount !== null ? money(s.result.totals.trv * (1 - s.option2_discount / 100)) : '—';
+    el.querySelector('#o2pkg').textContent = s.option2_discount !== null ? money(s.result.totals.trv * (1 - s.option2_discount / 100)) : '-';
     if (s.option2_discount !== null) s.selected_option = 2;
     save('o2');
   });

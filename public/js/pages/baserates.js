@@ -51,7 +51,7 @@ async function load() {
   el.querySelectorAll('[data-eslot]').forEach((b) => b.addEventListener('click', () => editSlot(cats, slotById.get(Number(b.dataset.eslot)))));
   el.querySelectorAll('[data-dslot]').forEach((b) => b.addEventListener('click', async () => {
     const s = slotById.get(Number(b.dataset.dslot));
-    if (!(await confirmBox('Delete rate slot', `Delete <b>${esc(s.name)}</b>?${s.program_count ? ' Programs still use it — move them first.' : ''}`))) return;
+    if (!(await confirmBox('Delete rate slot', `Delete <b>${esc(s.name)}</b>?${s.program_count ? ' Programs still use it, so move them first.' : ''}`))) return;
     if (await run(() => api(`/slots/${s.id}`, { method: 'DELETE' })) !== undefined) { toast('Slot deleted'); load(); }
   }));
   el.querySelectorAll('[data-ecat]').forEach((b) => b.addEventListener('click', () => editCat(cats.find((c) => c.id === Number(b.dataset.ecat)))));

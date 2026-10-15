@@ -98,7 +98,7 @@ async function editor(id) {
       const diff = Number(s.rate_30s) ? (eff / Number(s.rate_30s) - 1) * 100 : 0;
       el.querySelector(`[data-eff="${s.id}"]`).textContent = money(eff);
       const d = el.querySelector(`[data-diff="${s.id}"]`);
-      d.textContent = Math.abs(diff) < 0.005 ? '—' : `${diff > 0 ? '+' : ''}${num(diff, 2)}%`;
+      d.textContent = Math.abs(diff) < 0.005 ? '-' : `${diff > 0 ? '+' : ''}${num(diff, 2)}%`;
       d.style.color = diff > 0.005 ? 'var(--bad)' : diff < -0.005 ? 'var(--ok)' : '';
     }
   };

@@ -122,7 +122,7 @@ async function buildWorkbook(s) {
     h.value = heading + (sel ? '   ✔ used in this report' : '');
     h.font = { bold: true, color: { argb: sel ? WHITE : RED }, underline: !sel };
     if (sel) fill(h, RED);
-    [['Total Rate Card Value', t.trv, MONEY], ['Package Value', o ? o.package : '—', MONEY], ['Discount %', o ? o.discount_pct / 100 : '—', PCT]]
+    [['Total Rate Card Value', t.trv, MONEY], ['Package Value', o ? o.package : '-', MONEY], ['Discount %', o ? o.discount_pct / 100 : '-', PCT]]
       .forEach(([k, v, f], i) => {
         const rr = top + 1 + i;
         ws.mergeCells(rr, col, rr, col + 1);
@@ -140,13 +140,13 @@ async function buildWorkbook(s) {
         for (let c = col; c <= col + 2; c++) ws.getCell(rr, c).border = box;
       });
   };
-  optBox(1, 1, 'Option 01 — Package Value to Discount', m.option1, 'Package Value');
-  optBox(5, 2, 'Option 02 — Discount to Package Value', m.option2, 'Discount %');
+  optBox(1, 1, 'Option 01 - Package Value to Discount', m.option1, 'Package Value');
+  optBox(5, 2, 'Option 02 - Discount to Package Value', m.option2, 'Discount %');
   w.r = top + 5;
 
   const kpis = [
     ['Total spots', t.spots, INT], ['Total seconds', t.seconds, INT], ['Total 30-sec equivalents', t.units, DEC1],
-    ['Total rate card value (LKR)', t.trv, MONEY], [`Final package value — Option 0${m.selected} (LKR)`, t.package, MONEY],
+    ['Total rate card value (LKR)', t.trv, MONEY], [`Final package value, Option 0${m.selected} (LKR)`, t.package, MONEY],
     ['Overall discount', t.discount_pct / 100, PCT],
   ];
   if (Math.abs(t.base_value - t.trv) > 0.5) kpis.splice(4, 0, ['Value at published base rates (LKR)', t.base_value, MONEY]);
@@ -160,7 +160,7 @@ async function buildWorkbook(s) {
     w.r++;
   }
 
-  w.section('SPOT MIX — PRIME TIME (PT) / NON PRIME TIME (NPT)');
+  w.section('SPOT MIX: PRIME TIME (PT) / NON PRIME TIME (NPT)');
   w.header(['Time band', 'Spots', '% Spots', '30s Eq.', 'R/C Value (LKR)', 'Package Value (LKR)', '% Value']);
   const splitFmt = [null, INT, PCT, DEC1, MONEY, MONEY, PCT];
   for (const p of m.split) w.row([p.label, p.spots, p.spot_share, p.units, p.value, p.discounted, p.value_share], splitFmt);

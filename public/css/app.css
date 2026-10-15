@@ -173,9 +173,9 @@ table.t { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-
 @media (max-width: 700px) { .stepper .s span.t { display: none; } }
 
 /* ── Upload ─────────────────────────────────────────── */
-.drop { border: 2px dashed #cdd2de; border-radius: 12px; padding: 44px 20px; text-align: center; background: #fbfbfd; cursor: pointer; transition: .15s; }
+label.drop, .drop { display: block; border: 2px dashed #cdd2de; border-radius: 12px; padding: 44px 20px; text-align: center; background: #fbfbfd; cursor: pointer; transition: .15s; }
 .drop:hover, .drop.over { border-color: var(--red); background: var(--red-50); }
-.drop svg { width: 40px; height: 40px; color: var(--red); }
+.drop svg { width: 40px; height: 40px; color: var(--red); display: block; margin: 0 auto; }
 .drop b { display: block; font-size: 16px; margin: 10px 0 4px; }
 
 /* ── Matching table ─────────────────────────────────── */
@@ -359,3 +359,14 @@ details.extras summary { cursor: pointer; font-weight: 600; padding: 12px 20px; 
 
 a.btn:hover, .new-btn:hover { text-decoration: none; }
 @media (max-width: 700px) { .opt h3 { padding-right: 110px; font-size: 14px; } }
+
+.file-pill { transition: .15s; }
+.file-pill .fp-text { flex: 1; min-width: 0; }
+.file-pill .fp-text b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-pill.over { border-color: var(--red); background: var(--red-50); }
+.file-pill.reading { background: var(--info-50); border-color: #c9d8f7; }
+.file-pill.reading .spin { width: 24px; height: 24px; flex: none; }
+.file-pill.error { background: var(--bad-50); border-color: #f3c4c4; color: var(--bad); }
+.file-pill.error svg { color: var(--bad); }
+.mhead .name .row { flex-wrap: nowrap; }
+@media (max-width: 700px) { .file-pill { flex-wrap: wrap; } .steps-mini .sep { display: none; } }

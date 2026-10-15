@@ -97,7 +97,7 @@ function clientView() {
         <td>${cur.map(cardName).join('<br>')}</td>
         <td class="num">${cur.map((l) => `${num(l.discount_pct)}%`).join('<br>')}</td>
         <td class="num">${c.schedule_count}</td>
-        <td class="history">${past.map((l) => `${esc(l.agency_name)} → ${fmtDate(l.ended)}`).join('<br>') || '—'}</td>
+        <td class="history">${past.map((l) => `${esc(l.agency_name)} → ${fmtDate(l.ended)}`).join('<br>') || '-'}</td>
         <td class="actions">${cur[0] ? `<button class="btn btn-sm" data-deal="${cur[0].id}">${icon.edit} Deal</button> ` : ''}<button class="btn btn-sm" data-move="${c.id}">${cur.length ? 'Move…' : 'Assign…'}</button>
           <button class="btn btn-sm" data-ec="${c.id}" title="Rename">${icon.edit}</button> <button class="btn btn-sm btn-danger" data-dc="${c.id}">${icon.trash}</button></td></tr>`;
   }).join('') || '<tr><td colspan="7" class="empty">No clients yet.</td></tr>'}

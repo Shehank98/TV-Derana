@@ -64,7 +64,7 @@ function describe(parsed) {
   else if (d.join() === '5,6') parts.push('Sat–Sun');
   else if (d.length) parts.push(d.map((i) => NAMES[i][0] + NAMES[i].slice(1).toLowerCase()).join(', '));
   if (parsed.poya) parts.push('Poya');
-  return parts.join(' + ') || '—';
+  return parts.join(' + ') || '-';
 }
 
 module.exports = { parseDays, dayScore, describe };
