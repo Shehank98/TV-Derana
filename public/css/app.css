@@ -131,6 +131,8 @@ body.side-collapsed .brand { justify-content: center; padding-left: 0; padding-r
 .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .split { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 1100px) { .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* With the sidebar expanded, laptop screens have less room: show the 4 KPI tiles as 2 × 2. */
+@media (max-width: 1320px) { body:not(.side-collapsed) .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .grid-2, .grid-3, .grid-4, .split { grid-template-columns: 1fr; } }
 .hero { position: relative; overflow: hidden; background: var(--side); color: #fff; border-radius: 24px; padding: 28px 30px; animation: rise .45s ease both; }
 .hero::after { content: ""; position: absolute; right: -80px; top: -120px; width: 360px; height: 360px; border-radius: 50%; border: 50px solid rgba(200, 16, 46, .22); pointer-events: none; }
@@ -141,9 +143,10 @@ body.side-collapsed .brand { justify-content: center; padding-left: 0; padding-r
 
 /* ── KPIs ───────────────────────────────────────────── */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
-.kpi { padding: 18px 20px; border-radius: 16px; background: #fff; border: 1px solid var(--line); animation: rise .45s ease both; }
+.kpi { padding: 18px 20px; border-radius: 16px; background: #fff; border: 1px solid var(--line); animation: rise .45s ease both; min-width: 0; container-type: inline-size; }
 .kpi .label { font-size: 13px; color: var(--ink-3); font-weight: 600; }
-.kpi .value { font-family: var(--display); font-size: 28px; font-weight: 700; margin-top: 4px; letter-spacing: -.01em; }
+/* Big numbers shrink with the tile (e.g. sidebar expanded) so they never spill out. */
+.kpi .value { font-family: var(--display); font-size: clamp(17px, 10cqi, 28px); font-weight: 700; margin-top: 4px; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .kpi .hint { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
 .kpi.accent { background: var(--red); border-color: var(--red); color: #fff; }
 .kpi.accent .label, .kpi.accent .hint { color: #ffd9de; }
