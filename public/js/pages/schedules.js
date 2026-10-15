@@ -37,20 +37,20 @@ async function load() {
     return;
   }
   const sum = (k) => rows.reduce((a, x) => a + Number(x[k] || 0), 0);
-  list.innerHTML = `<table class="t"><thead><tr><th>Schedule No</th><th>Month</th><th>Client</th><th>Agency</th><th class="num">Spots</th><th class="num">PT / NPT</th>
+  list.innerHTML = `<table class="t"><thead><tr><th>Schedule No</th><th>Month</th><th>Client</th><th>Agency</th><th class="num">Spots</th>
     <th class="num">Rate card value</th><th class="num">Package</th><th class="num">Discount</th><th>Saved</th><th></th></tr></thead><tbody>
     ${rows.map((x) => `<tr style="cursor:pointer" data-open="${x.id}">
       <td><b><a href="#/schedule/${x.id}" style="color:var(--ink)">${esc(x.schedule_no)}</a></b><div class="small muted">${esc(x.title || x.file_name || '')}</div></td>
       <td class="nowrap">${monthLabel(x.month)}</td>
       <td>${esc(x.client_name)}</td><td>${esc(x.agency_name)}</td>
-      <td class="num">${num(x.spots, 0)}</td><td class="num small">${num(x.pt_spots, 0)} / ${num(x.npt_spots, 0)}</td>
+      <td class="num">${num(x.spots, 0)}</td>
       <td class="num">${money(x.trv)}</td><td class="num"><b style="color:var(--red)">${money(x.package)}</b><div class="small muted">Option 0${x.selected_option}</div></td>
       <td class="num"><span class="pill-amber">${pct(x.discount_pct)}</span></td><td class="small nowrap">${date(x.updated_at)}</td>
       <td class="actions">
         <button class="btn btn-sm" data-x="${x.id}" title="Excel report">XLSX</button>
         <button class="btn btn-sm" data-p="${x.id}" title="PDF report">PDF</button>
         <button class="btn btn-sm btn-danger" data-del="${x.id}" data-no="${esc(x.schedule_no)}" title="Delete">${icon.trash}</button></td></tr>`).join('')}
-    <tr class="total"><td colspan="4">${rows.length} schedule${rows.length > 1 ? 's' : ''}</td><td class="num">${num(sum('spots'), 0)}</td><td></td>
+    <tr class="total"><td colspan="4">${rows.length} schedule${rows.length > 1 ? 's' : ''}</td><td class="num">${num(sum('spots'), 0)}</td>
       <td class="num">${money(sum('trv'))}</td><td class="num">${money(sum('package'))}</td><td class="num">${pct(sum('trv') ? (1 - sum('package') / sum('trv')) * 100 : 0)}</td><td colspan="2"></td></tr>
     </tbody></table>`;
   list.querySelectorAll('[data-open]').forEach((tr) => tr.addEventListener('click', (e) => {
