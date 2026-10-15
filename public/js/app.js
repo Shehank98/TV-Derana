@@ -1,10 +1,13 @@
-// Hash router.
-import { esc } from './ui.js';
+// Hash router + sidebar behaviour.
+import { esc, store } from './ui.js';
 
 const routes = [
-  [/^\/dashboard$/, 'dashboard', () => ({})],
-  [/^\/new$/, 'new', () => ({})],
-  [/^\/schedule\/(\d+)\/edit$/, 'new', (m) => ({ id: Number(m[1]) })],
+  [/^\/home$/, 'home', () => ({})],
+  [/^\/new$/, 'pick', () => ({})],
+  [/^\/new\/(\d+)$/, 'pick', (m) => ({ agencyId: Number(m[1]) })],
+  [/^\/client\/(\d+)\/(\d+)$/, 'client', (m) => ({ agencyId: Number(m[1]), clientId: Number(m[2]) })],
+  [/^\/match$/, 'match', () => ({})],
+  [/^\/schedule\/(\d+)\/match$/, 'match', (m) => ({ id: Number(m[1]) })],
   [/^\/schedule\/(\d+)$/, 'schedule', (m) => ({ id: Number(m[1]) })],
   [/^\/schedules$/, 'schedules', () => ({})],
   [/^\/clients$/, 'clients', () => ({})],
@@ -15,23 +18,23 @@ const routes = [
   [/^\/settings$/, 'settings', () => ({})],
 ];
 
-const navKey = { dashboard: 'dashboard', new: 'new', schedule: 'schedules', schedules: 'schedules', clients: 'clients',
-  ratecards: 'rate-cards', baserates: 'base-rates', programs: 'programs', settings: 'settings' };
+const navKey = { home: 'home', pick: 'new', client: 'new', match: 'new', schedule: 'schedules', schedules: 'schedules',
+  clients: 'clients', ratecards: 'rate-cards', baserates: 'base-rates', programs: 'programs', settings: 'settings' };
 
 let current = null;
+const side = document.getElementById('side');
 
 async function render() {
-  const path = (location.hash || '#/dashboard').slice(1);
+  const path = (location.hash || '#/home').slice(1);
   let found = null;
   for (const [re, page, params] of routes) {
     const m = path.match(re);
     if (m) { found = { page, params: params(m) }; break; }
   }
-  if (!found) { location.hash = '#/dashboard'; return; }
+  if (!found) { location.hash = '#/home'; return; }
 
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey[found.page]));
-  document.querySelector('.new-btn').classList.toggle('active', found.page === 'new' && !found.params.id);
-  document.getElementById('side').classList.remove('open');
+  side.classList.remove('open');
 
   const el = document.getElementById('page');
   if (current && current.leave) current.leave();
@@ -47,6 +50,18 @@ async function render() {
   window.scrollTo(0, 0);
 }
 
-document.getElementById('menuBtn').addEventListener('click', () => document.getElementById('side').classList.toggle('open'));
+// Sidebar: collapse / expand on desktop (remembered), drawer on mobile.
+function setCollapsed(c) {
+  document.body.classList.toggle('side-collapsed', c);
+  const t = document.getElementById('sideToggle');
+  t.setAttribute('aria-label', c ? 'Expand sidebar' : 'Collapse sidebar');
+  t.querySelector('.label').textContent = c ? 'Expand' : 'Collapse';
+  store.set('tvd_side', c ? 'collapsed' : 'open');
+}
+setCollapsed(store.get('tvd_side') === 'collapsed');
+document.getElementById('sideToggle').addEventListener('click', () => setCollapsed(!document.body.classList.contains('side-collapsed')));
+document.getElementById('menuBtn').addEventListener('click', () => side.classList.add('open'));
+document.getElementById('scrim').addEventListener('click', () => side.classList.remove('open'));
+
 window.addEventListener('hashchange', render);
 render();

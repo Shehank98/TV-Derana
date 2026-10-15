@@ -52,16 +52,20 @@ npm test        # matching + pricing tests (no database needed)
 
 ## Daily use
 
+1. **New schedule** (red button): pick the **agency** card, then the **client** card (both have a search bar).
+2. On the client page you see past schedules by month. Click **New schedule**, then enter the month, schedule number and schedule name, upload the Excel and click **Continue**.
+3. **Matching:** every program in the schedule is listed (rows with no time belt or zero spots are ignored). Untick what the client doesn't want, and fix any wrong rate card match from the dropdown. Then click **Proceed**.
+4. **Dashboard:** Option 01 (enter the package value → discount %) and Option 02 (enter the discount % → package value), the PT/NPT split, categories and program analysis. Download the **Excel** or **PDF** report.
+
 | Page | What it's for |
 |---|---|
-| **Dashboard** | Totals for a month / agency: schedules, rate card value, packages, discount, PT/NPT, top clients |
-| **New schedule** | Agency → Client → Month → Schedule No → upload Excel → **Proceed** → check mappings → **Continue** |
-| **Schedule dashboard** | Option 01 / Option 02, PT/NPT split, program analysis, Excel & PDF reports |
+| **Home** | Totals for this month / 12 months / all time, by agency |
 | **Schedules** | All schedules, filtered by month, agency, client or number |
-| **Agencies & clients** | Link clients to agencies, set each deal's rate card and agreed discount, **move a client to another agency** (history is kept) |
-| **Client rate cards** | Custom cards: a fixed rate or a % discount per rate slot, plus a default % |
-| **Base rate card** | Published TV Derana rates per 30 seconds (edit inline) |
-| **Programs & time belts** | What airs when and which slot prices it; aliases; week view; "Test matching" tool |
-| **Settings** | Special item rates (crawlers) and words used to read schedules |
+| **Agencies & clients** | Agency list, client cards with their deal (rate card + agreed discount), **move a client to another agency** (history kept) |
+| **Client rate cards / Base rate card** | Custom per-slot rates / published TV Derana rates |
+| **Programs & time belts** | What airs when, aliases, week view, "Test matching" |
+| **Settings** | Crawler rates and words used to read schedules |
+
+The sidebar collapses to icons with the **Collapse** button at the bottom.
 
 See `CLAUDE.md` for the full logic (matching, calculations, data model).

@@ -69,13 +69,13 @@ export async function download(res) {
 }
 
 // modal({ title, body (html), wide, okText, onOk(el) → false keeps it open }) → Promise<result|null>
-export function modal({ title, body, wide = false, okText = 'Save', cancelText = 'Cancel', onOk, danger = false, onOpen }) {
+export function modal({ title, sub = '', body, wide = false, okText = 'Save', cancelText = 'Cancel', onOk, danger = false, onOpen }) {
   return new Promise((resolve) => {
     const back = document.createElement('div');
     back.className = 'modal-back';
     back.innerHTML = `
       <div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">
-        <div class="modal-head"><h2>${esc(title)}</h2><button class="btn btn-ghost btn-icon" data-x aria-label="Close">✕</button></div>
+        <div class="modal-head"><div><h2>${esc(title)}</h2>${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div><button class="btn btn-icon" data-x aria-label="Close">✕</button></div>
         <div class="modal-body">${body}</div>
         <div class="modal-foot">
           ${cancelText ? `<button class="btn" data-x>${esc(cancelText)}</button>` : ''}
@@ -118,14 +118,29 @@ export function formData(el) {
   return out;
 }
 
-export function setHeader(title, sub = '', actionsHtml = '') {
+// crumbs: [[label, href?], ...]; the last one is the current page.
+export function setHeader(title, sub = '', actionsHtml = '', crumbs = []) {
+  document.getElementById('topbar').classList.toggle('hidden', !title && !actionsHtml && !crumbs.length);
+  document.getElementById('crumbs').innerHTML = crumbs.map(([label, href], i) => {
+    if (i === crumbs.length - 1) return `<b>${esc(label)}</b>`;
+    return `${href ? `<a href="${href}">${esc(label)}</a>` : `<span>${esc(label)}</span>`}<span aria-hidden="true">/</span>`;
+  }).join('');
   document.getElementById('pageTitle').textContent = title;
   document.getElementById('pageSub').textContent = sub;
   document.getElementById('pageActions').innerHTML = actionsHtml;
-  document.title = `${title} · TV Derana Schedules`;
+  document.title = `${title || 'TV Derana'} · TV Derana Schedules`;
 }
 
+// Agency / client initials and tile tints (stable per name).
+export const initials = (name) => String(name || '?').replace(/[^A-Za-z0-9 /]/g, ' ').split(/[\s/]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+const TINTS = [['#fdecef', '#b00e28'], ['#e8f0fb', '#245a99'], ['#e6f5ee', '#0d6b49'], ['#fff3c4', '#6b5200'], ['#f1ecfb', '#5a3c9e'], ['#eef0f5', '#111827']];
+export const tint = (name) => { let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return TINTS[h % TINTS.length]; };
+
 export const icon = {
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M9 14l2 2 4-4"/></svg>',
+  fileBad: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M10 12l4 4M14 12l-4 4"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
   edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',

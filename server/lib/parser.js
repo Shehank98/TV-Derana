@@ -5,7 +5,8 @@
 //   PROGRAM | DAY | START TIME | END TIME | DUR | TOTAL SPOTS
 // Rows with only a PROGRAM value are section headers. They become the
 // "theme" (e.g. CASH BONANZA) unless they are generic labels such as
-// "SPONSORSHIP BENEFITS", which are ignored.
+// "SPONSORSHIP BENEFITS", which are ignored. Rows with no time belt, zero
+// spots or no duration are dropped (only counted in `skipped`).
 
 const ExcelJS = require('exceljs');
 const { parseTime } = require('./time');
@@ -113,7 +114,7 @@ async function parseWorkbook(buffer, { sectionLabels = [], sheetName } = {}) {
   }
 
   const lines = [];
-  const extras = [];
+  let skipped = 0;
   let theme = '';
   for (let r = headerRow + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
@@ -139,14 +140,12 @@ async function parseWorkbook(buffer, { sectionLabels = [], sheetName } = {}) {
       continue;
     }
 
-    const base = { row: r, theme, program, day: day === null ? '' : String(day), start, end };
-    if (!dur && !spots) { extras.push({ ...base, reason: 'No duration / spots (non-priced benefit)' }); continue; }
-    if (!spots) { extras.push({ ...base, dur, spots: 0, reason: 'Zero spots' }); continue; }
-    if (!dur) { extras.push({ ...base, spots, reason: 'Missing duration' }); continue; }
-    lines.push({ ...base, dur, spots });
+    // Rows without a time belt, without spots or without a duration are ignored entirely.
+    if (start === null || !spots || !dur) { skipped++; continue; }
+    lines.push({ row: r, theme, program, day: day === null ? '' : String(day), start, end, dur, spots });
   }
 
-  return { sheet: ws.name, sheets, headerRow, columns: cols, lines, extras };
+  return { sheet: ws.name, sheets, headerRow, columns: cols, lines, skipped };
 }
 
 module.exports = { parseWorkbook, cellValue };

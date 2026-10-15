@@ -71,9 +71,8 @@ r.post('/schedules/parse', express.raw({ type: () => true, limit: '20mb' }), asy
   const [programs, aliases] = await Promise.all([repo.getPrograms(), repo.getAliases()]);
   const matched = matchAll(parsed.lines, programs, aliases, settings);
   res.json({
-    sheet: parsed.sheet, sheets: parsed.sheets,
+    sheet: parsed.sheet, sheets: parsed.sheets, skipped: parsed.skipped,
     lines: matched.map((l) => ({ ...l, program_id: l.match.program_id, status: l.match.status })),
-    extras: parsed.extras,
   });
 });
 
@@ -84,7 +83,7 @@ r.post('/schedules/calculate', async (req, res) => {
 });
 
 // ── Saved schedules ──
-const LIST_COLS = `s.id, s.schedule_no, to_char(s.month, 'YYYY-MM') AS month, s.agency_id, s.client_id, s.agency_name, s.client_name,
+const LIST_COLS = `s.id, s.schedule_no, s.title, to_char(s.month, 'YYYY-MM') AS month, s.agency_id, s.client_id, s.agency_name, s.client_name,
   s.rate_card_name, s.file_name, s.selected_option, s.option1_package, s.option2_discount, s.created_at, s.updated_at,
   (s.result->'totals'->>'trv')::numeric AS trv, (s.result->'totals'->>'package')::numeric AS package,
   (s.result->'totals'->>'discount_pct')::numeric AS discount_pct, (s.result->'totals'->>'spots')::numeric AS spots,
@@ -95,9 +94,10 @@ function filters(q, params) {
   if (q.month) { params.push(monthDate(q.month)); where.push(`s.month = $${params.length}`); }
   if (q.agency_id) { params.push(id(q.agency_id)); where.push(`s.agency_id = $${params.length}`); }
   if (q.client_id) { params.push(id(q.client_id)); where.push(`s.client_id = $${params.length}`); }
+  if (q.since) { params.push(monthDate(q.since)); where.push(`s.month >= $${params.length}`); }
   if (q.search) {
     params.push(`%${String(q.search).trim()}%`);
-    where.push(`(s.schedule_no ILIKE $${params.length} OR s.client_name ILIKE $${params.length} OR s.agency_name ILIKE $${params.length} OR s.file_name ILIKE $${params.length})`);
+    where.push(`(s.schedule_no ILIKE $${params.length} OR s.title ILIKE $${params.length} OR s.client_name ILIKE $${params.length} OR s.agency_name ILIKE $${params.length} OR s.file_name ILIKE $${params.length})`);
   }
   return where.length ? `WHERE ${where.join(' AND ')}` : '';
 }
@@ -138,17 +138,17 @@ async function saveSchedule(b, existingId) {
 
   const vals = [scheduleNo, month, agencyId, clientId, result.deal.agency_name, result.deal.client_name, result.deal.rate_card_name,
     optText(b.file_name), JSON.stringify(lines), JSON.stringify(Array.isArray(b.extras) ? b.extras : []),
-    opts.option1_package, opts.option2_discount, result.totals.selected_option, JSON.stringify(result)];
+    opts.option1_package, opts.option2_discount, result.totals.selected_option, JSON.stringify(result), optText(b.title)];
   if (existingId) {
     const { rows } = await query(`UPDATE schedules SET schedule_no=$1, month=$2, agency_id=$3, client_id=$4, agency_name=$5, client_name=$6,
       rate_card_name=$7, file_name=$8, lines=$9, extras=$10, option1_package=$11, option2_discount=$12, selected_option=$13, result=$14,
-      updated_at=now() WHERE id=$15 RETURNING id`, [...vals, existingId]);
+      title=$15, updated_at=now() WHERE id=$16 RETURNING id`, [...vals, existingId]);
     if (!rows[0]) throw httpError(404, 'Schedule not found');
     return { id: rows[0].id, result };
   }
   const { rows } = await query(`INSERT INTO schedules(schedule_no, month, agency_id, client_id, agency_name, client_name, rate_card_name,
-    file_name, lines, extras, option1_package, option2_discount, selected_option, result)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`, vals);
+    file_name, lines, extras, option1_package, option2_discount, selected_option, result, title)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`, vals);
   return { id: rows[0].id, result };
 }
 
@@ -198,7 +198,7 @@ r.get('/schedules/:id/report.pdf', async (req, res) => {
 // ── Home dashboard ──
 r.get('/dashboard', async (req, res) => {
   const params = [];
-  const where = filters({ month: req.query.month, agency_id: req.query.agency_id }, params);
+  const where = filters({ month: req.query.month, since: req.query.since, agency_id: req.query.agency_id }, params);
   const T = (k) => `COALESCE(sum((s.result->'totals'->>'${k}')::numeric),0)`;
   const S = (p, k) => `COALESCE(sum((s.result->'split'->'${p}'->>'${k}')::numeric),0)`;
   const [{ rows: [kpi] }, { rows: byAgency }, { rows: byClient }, { rows: recent }] = await Promise.all([

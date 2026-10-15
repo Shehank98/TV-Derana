@@ -10,7 +10,8 @@ const r = express.Router();
 
 const LINKS_SQL = `
   SELECT ac.*, a.name AS agency_name, cl.name AS client_name, rc.name AS rate_card_name,
-         (SELECT count(*)::int FROM schedules s WHERE s.agency_id = ac.agency_id AND s.client_id = ac.client_id) AS schedule_count
+         (SELECT count(*)::int FROM schedules s WHERE s.agency_id = ac.agency_id AND s.client_id = ac.client_id) AS schedule_count,
+         (SELECT to_char(max(s.month), 'YYYY-MM') FROM schedules s WHERE s.agency_id = ac.agency_id AND s.client_id = ac.client_id) AS last_month
   FROM agency_clients ac
   JOIN agencies a ON a.id = ac.agency_id
   JOIN clients cl ON cl.id = ac.client_id
@@ -18,7 +19,12 @@ const LINKS_SQL = `
 
 // ── Agencies (with their linked clients) ──
 r.get('/agencies', async (req, res) => {
-  const { rows: agencies } = await query('SELECT * FROM agencies ORDER BY name');
+  const { rows: agencies } = await query(`
+    SELECT a.*,
+      (SELECT count(*)::int FROM schedules s WHERE s.agency_id = a.id AND s.month = date_trunc('month', now())::date) AS schedules_this_month,
+      (SELECT count(*)::int FROM schedules s WHERE s.agency_id = a.id) AS schedule_count,
+      (SELECT max(s.created_at) FROM schedules s WHERE s.agency_id = a.id) AS last_upload
+    FROM agencies a ORDER BY a.name`);
   const { rows: links } = await query(`${LINKS_SQL} ORDER BY cl.name`);
   res.json(agencies.map((a) => ({
     ...a,

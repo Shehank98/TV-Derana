@@ -91,7 +91,7 @@ function buildPdf(s) {
   // ── Page 1 ──────────────────────────────────────────────────────────────
   doc.save().rect(0, 0, doc.page.width, 78).fill(C.red).restore();
   doc.font('Helvetica-Bold').fontSize(26).fillColor('#ffffff').text('TV DERANA', L, 20);
-  doc.font('Helvetica').fontSize(12).fillColor('#ffd9de').text('Schedule Analysis Report', L, 50);
+  doc.font('Helvetica').fontSize(12).fillColor('#ffd9de').text(txt(s.title ? `Schedule Analysis Report  ·  ${s.title}` : 'Schedule Analysis Report'), L, 50, { width: W * 0.6, lineBreak: false, ellipsis: true });
   doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff').text(txt(`Schedule No ${s.schedule_no}`), L, 24, { width: W, align: 'right' });
   doc.font('Helvetica').fontSize(10).fillColor('#ffd9de').text(txt(`${s.client_name}  ·  ${m.info[2][1]}`), L, 46, { width: W, align: 'right' });
 
@@ -104,7 +104,7 @@ function buildPdf(s) {
     doc.font('Helvetica').fontSize(7.5).fillColor(C.muted).text(k.toUpperCase(), x, yy, { width: colW - 10, characterSpacing: 0.4 });
     doc.font('Helvetica-Bold').fontSize(10.5).fillColor(C.ink).text(txt(v), x, yy + 11, { width: colW - 10, lineBreak: false, ellipsis: true });
   });
-  y += 76;
+  y += Math.ceil(m.info.length / 4) * 34 + 8;
 
   // KPI tiles
   const kpis = [

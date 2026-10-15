@@ -68,7 +68,7 @@ test('names: Sinhala spelling variants, times and plurals', () => {
 test('sample schedule: every priced line matches the right program', async () => {
   const parsed = await parseWorkbook(fs.readFileSync(path.join(__dirname, 'fixtures/sample_schedule.xlsx')), { sectionLabels: SETTINGS.section_labels });
   assert.equal(parsed.lines.length, 50);
-  assert.equal(parsed.extras.length, 25);
+  assert.equal(parsed.skipped, 25);
   const expected = {
     BILLBOARDS: { '22:00': 'Ada Derana 10.00pm', '13:00': 'Weekday Movies' },
     'SONG CARD - MTUNE': 'Dream Star', 'L CRAWLER': 'Dream Star', 'DERANA DREAM STAR': 'Dream Star',

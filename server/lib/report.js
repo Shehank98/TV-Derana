@@ -32,6 +32,7 @@ function model(s) {
       ['Client', s.client_name],
       ['Campaign month', monthLabel(s.month_key || s.month)],
       ['Schedule No', s.schedule_no],
+      ['Schedule name', s.title || '-'],
       ['Rate card', s.rate_card_name || deal.rate_card_name || 'Base rate card'],
       ['Agreed discount', `${Number(deal.agreed_discount || 0)}%`],
       ['Source file', s.file_name || '-'],

@@ -10,7 +10,12 @@ each flow works, **every calculation rule**, and the conventions to keep.
 TV Derana sales staff receive a **campaign schedule Excel** from an ad agency. It lists programs, days,
 time belts, spot durations and spot counts. The flow is:
 
-**Agency → Client → Campaign month → Schedule No + upload → Proceed → Program mappings → Continue → Schedule dashboard**
+**New schedule → agency cards (search) → client cards (search) → client page (past schedules by month) →
+"New schedule" popup (month, schedule number, schedule name, upload) → Continue → Matching → Proceed → Schedule dashboard**
+
+The UI follows the approved Claude Design canvas "TV Derana Schedule System Redesign"
+(https://claude.ai/artifact/PSQrFAhVNpDYQuVTMBUy7R): "Broadcast Control" look: ink sidebar (collapsible),
+off-white workspace, Derana red accent, amber = values you type, Sora + Manrope, light rise/grow animations.
 
 1. **Parse** the sheet into schedule lines (+ section headings / "themes").
 2. **Auto-match** each line to a TV Derana **program**. It uses the name, the section heading for ad-format lines
@@ -41,7 +46,7 @@ server/
   db.js               pg Pool, tx(), migrate()
   seed.js             Rate card (PDF), programs, settings, sample agencies/clients/cards
   repo.js             DB loaders used by the engine (programs+aliases, slots, client, card…)
-  migrations/001_init.sql, 002_schedules.sql
+  migrations/001_init.sql, 002_schedules.sql, 003_schedule_title.sql
   lib/                ── pure logic, no DB access, unit-tested ──
     time.js           time parsing, intervals (midnight-safe), timeScore
     days.js           day text → weekday set, dayScore
@@ -56,7 +61,7 @@ server/
 public/
   index.html, css/app.css
   js/app.js (hash router), js/ui.js (api, modal, toast, formatters), js/charts.js (HTML bars, tooltips)
-  js/pages/ dashboard.js · new.js · schedule.js · schedules.js · clients.js · ratecards.js · baserates.js · programs.js · settings.js
+  js/flow.js (step chips + draft), js/pages/ home.js · pick.js · client.js · match.js · schedule.js · schedules.js · clients.js · ratecards.js · baserates.js · programs.js · settings.js
 test/engine.test.js   node --test; uses test/fixtures/sample_schedule.xlsx
 legacy/               old Tkinter + SQLite app (reference only, not deployed)
 docs/                 TV Derana rate card PDF (source of the seed rates)
@@ -75,7 +80,7 @@ agencies 1─* agency_clients *─1 clients            ← a client can MOVE bet
               discount_pct = agreed discount → Option 02 default, active, since, ended)
 rate_cards 1─* rate_card_items *─1 rate_slots  (mode: fixed | discount, value; card default_discount_pct)
 
-schedules (schedule_no, month, agency/client ids + NAME SNAPSHOTS, rate_card_name, file_name,
+schedules (schedule_no, title, month, agency/client ids + NAME SNAPSHOTS, rate_card_name, file_name,
            lines jsonb, extras jsonb, option1_package, option2_discount, selected_option, result jsonb)
 special_rules (keyword → rate_pt / rate_npt)       settings (key → jsonb)
 ```
@@ -104,8 +109,7 @@ special_rules (keyword → rate_pt / rate_npt)       settings (key → jsonb)
    - only the program cell filled → **section heading**. It becomes the current theme unless it
      contains a *section label* (setting `section_labels`: SPONSORSHIP, BENEFITS, PRESENCE…).
      So "BRAND PRESENCE" under "DREAM STAR" keeps the theme DREAM STAR;
-   - no dur and no spots → `extras` ("non-priced benefit", e.g. JUDGES TABLE BRANDING);
-   - spots = 0 → `extras` ("Zero spots"); missing dur → `extras`;
+   - **no time belt, zero spots or no duration → ignored entirely** (only counted in `skipped`; never shown);
    - otherwise → a **line** `{row, theme, program, day, start, end (minutes), dur, spots}`.
 4. Times accept Excel time cells (Date in UTC), day fractions, `"22:00"`, `"10.30 PM"`, `"1930"`.
 
@@ -198,20 +202,23 @@ Errors: `{ error: "human readable message" }` with 4xx. FK/unique violations are
 
 ## 8. UI flows (`public/js/pages`)
 
-- **dashboard.js** (home): month + agency filters; KPIs; package value by month (12 columns); PT/NPT stacked bars;
-  top clients / agencies; recent schedules.
-- **new.js** (`#/new`, `#/schedule/:id/edit`): step 1 agency → client (shows the rate card and agreed discount) → month →
-  Schedule No → Excel; **Proceed** parses. Step 2 has a yellow "Please check" box (time-belt / uncertain lines) and program
-  groups with on/off switches; expand a group to switch off single lines or change a line's program (this applies to identical
-  lines and learns an alias). **Continue** saves and opens the dashboard. The live TRV is shown at the top.
-- **schedule.js** (`#/schedule/:id`): details strip, KPIs, **Option 01 / Option 02 cards** (yellow inputs, "Use in report"
-  radio, autosave via PATCH), PT/NPT chart + table, category bars, tabs Program analysis / Lines / Not counted; Excel & PDF.
-- **schedules.js**: list with month / agency / client / search filters and totals row.
-- **clients.js**: "By agency" (linked clients, deal, move, remove, past clients) and "All clients" (current agency, history).
-- **ratecards.js**, **baserates.js**, **programs.js** (list + week view + "Test matching"), **settings.js**.
+Shell (`index.html`, `app.js`): sidebar collapses to an icon rail (remembered in localStorage), mobile drawer;
+`setHeader(title, sub, actions, crumbs)` drives the top bar (empty title + no crumbs hides it on desktop).
 
-Charts: plain HTML/CSS in `js/charts.js`. PT = `#c8102e`, NPT = `#2f6fb5` (pair validated for colour-blind separation).
-Single-series charts use one hue with direct labels, and every mark has a hover tooltip.
+| Route | Page | What it shows |
+|---|---|---|
+| `#/home` | home.js | Period (this month / 12 months / all) + agency filter, start banner, KPIs, monthly columns, top clients, PT share, recent schedules |
+| `#/new` | pick.js | Step 1: agency cards with live search (also finds agencies by client name) |
+| `#/new/:agencyId` | pick.js | Step 2: that agency's client cards (rate card + agreed discount) with search |
+| `#/client/:agencyId/:clientId` | client.js | Step 3: client hero, past schedules grouped by month, **New schedule popup** (month, number, name, upload with ready/reading/error states) |
+| `#/match`, `#/schedule/:id/match` | match.js | Step 4: one row per agency program (name + days + time belt, merged across sections), tick to include, rate card program dropdown, how-matched chip, filters, live totals, dock with Proceed |
+| `#/schedule/:id` | schedule.js | Dashboard: hero KPIs, Option 01 / 02 (autosave PATCH), PT/NPT donut, category bars, program analysis / lines / not counted tabs, Excel + PDF |
+| `#/schedules` | schedules.js | All schedules with filters |
+| `#/clients` | clients.js | Agencies & clients: agency list (search), client cards with deal, slide-in drawer to move / edit deal / add client, history, clients with no agency |
+| `#/rate-cards`, `#/base-rates`, `#/programs`, `#/settings` | | Setup pages |
+
+The draft between the popup and matching lives in `js/flow.js` (memory + localStorage).
+Charts are HTML/CSS (`js/charts.js` tooltips; donut = conic-gradient). PT `#c8102e`, NPT `#2f6fb5`.
 
 ---
 

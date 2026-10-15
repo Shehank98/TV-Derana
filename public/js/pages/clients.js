@@ -1,138 +1,211 @@
-// Agencies & clients. Clients exist once; an agency–client "deal" links them
-// (rate card + agreed discount). Moving a client ends the old link (kept as
-// history) and starts a new one, so old schedules keep their agency.
-import { api, run, esc, num, setHeader, icon, modal, confirmBox, toast, formData, store } from '../ui.js';
+// Agencies & clients: pick an agency on the left, its clients appear as cards.
+// A client books through one agency at a time (rate card + agreed discount).
+// Moving a client ends the old link (kept as history) and starts a new one.
+import { api, run, esc, num, setHeader, icon, modal, confirmBox, toast, formData, store, initials, tint, monthLabel } from '../ui.js';
 
 let el;
 let agencies = [];
 let clients = [];
 let cards = [];
-let view = store.get('tvd_clients_view', 'agencies');
 let selected = store.get('tvd_agency', null);
-let filter = '';
+let q = '';
+let panel = null; // { type: 'move' | 'deal' | 'add', link? }
 
 export async function render(root) {
   el = root;
-  setHeader('Agencies & clients', 'Who books through whom, at which rate card and agreed discount',
+  panel = null;
+  setHeader('Agencies & clients', 'Each client books through one agency at a time, with its own rate card and agreed discount.',
     `<button class="btn" id="addAgency">${icon.plus} Agency</button><button class="btn btn-primary" id="addClient">${icon.plus} Client</button>`);
   document.getElementById('addAgency').onclick = () => editAgency();
-  document.getElementById('addClient').onclick = () => newClient(view === 'agencies' ? selected : null);
+  document.getElementById('addClient').onclick = () => { if (selected) { panel = { type: 'add' }; draw(); } else editAgency(); };
   await load();
 }
 
 async function load() {
   [agencies, clients, cards] = await Promise.all([api('/agencies'), api('/clients'), api('/rate-cards')]);
-  if (!agencies.find((a) => a.id === selected)) selected = agencies[0]?.id ?? null;
+  if (selected !== 'none' && !agencies.find((a) => a.id === selected)) selected = agencies[0]?.id ?? null;
   draw();
 }
 
-const cardName = (l) => esc(l.rate_card_name || 'Base rate card');
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : '');
 const cardOptions = (sel) => `<option value="">Base rate card (published rates)</option>${cards.map((c) => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}`;
-const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+const orphans = () => clients.filter((c) => !c.links.some((l) => l.active));
 
 function draw() {
+  const s = q.trim().toLowerCase();
+  const shown = agencies.filter((a) => !s || a.name.toLowerCase().includes(s) || a.clients.some((c) => c.client_name.toLowerCase().includes(s)));
+  const a = agencies.find((x) => x.id === selected);
+  const lone = orphans();
   el.innerHTML = `
-  <div class="filters" style="margin-bottom:14px">
-    <button data-v="agencies" class="${view === 'agencies' ? 'on' : ''}">By agency</button>
-    <button data-v="clients" class="${view === 'clients' ? 'on' : ''}">All clients</button>
-  </div>
-  ${view === 'agencies' ? agencyView() : clientView()}`;
-  el.querySelectorAll('[data-v]').forEach((b) => b.addEventListener('click', () => { view = b.dataset.v; store.set('tvd_clients_view', view); draw(); }));
-  (view === 'agencies' ? bindAgency : bindClients)();
-  bindDealButtons();
+  <div class="dir">
+    <aside class="card agencies">
+      <div style="padding:14px"><label class="search"><span class="sr">Find agency or client</span>${icon.search}<input type="search" id="q" placeholder="Find agency or client" value="${esc(q)}"></label></div>
+      <div class="list">
+        ${shown.map((x) => {
+    const [bg, ink] = tint(x.name);
+    const hit = s && !x.name.toLowerCase().includes(s) ? x.clients.find((c) => c.client_name.toLowerCase().includes(s)) : null;
+    return `<button data-a="${x.id}" class="${x.id === selected ? 'on' : ''}"><span class="mono-tile" style="background:${bg};color:${ink}">${esc(initials(x.name))}</span>
+            <span style="min-width:0"><span style="display:block">${esc(x.name)}</span>${hit ? `<span class="small muted">has ${esc(hit.client_name)}</span>` : ''}</span><span class="count">${x.clients.length}</span></button>`;
+  }).join('') || '<div class="empty">No match</div>'}
+        ${lone.length ? `<button data-a="none" class="${selected === 'none' ? 'on' : ''}"><span class="mono-tile" style="background:var(--amber);color:var(--amber-ink)">?</span><span>Clients with no agency</span><span class="count">${lone.length}</span></button>` : ''}
+      </div>
+    </aside>
+    <section class="detail">${selected === 'none' ? orphanView(lone) : a ? agencyView(a) : '<div class="empty-hero"><h2>No agencies yet</h2><p>Add the first agency to start.</p></div>'}</section>
+    ${panel ? `<div class="panel-scrim" id="pScrim"></div><aside class="panel" aria-label="Client details">${panelView(a)}</aside>` : ''}
+  </div>`;
+  bind(a);
 }
 
-// ── By agency ──
-function agencyView() {
-  const a = agencies.find((x) => x.id === selected);
-  const shown = agencies.filter((x) => !filter || x.name.toLowerCase().includes(filter.toLowerCase()));
-  return `<div class="split">
-    <div class="card">
-      <div class="card-head"><div class="search" style="width:100%">${icon.search}<input id="f" placeholder="Find agency" value="${esc(filter)}"></div></div>
-      <div class="list">${shown.map((x) => `<button data-a="${x.id}" class="${x.id === selected ? 'on' : ''}"><b>${esc(x.name)}</b><span class="count">${x.clients.length}</span></button>`).join('') || '<div class="empty">No agencies</div>'}</div>
-    </div>
-    <div class="card">${a ? `
-      <div class="card-head">
-        <div><h2>${esc(a.name)}</h2><div class="small muted">${[a.contact, a.email, a.phone].filter(Boolean).map(esc).join(' · ') || 'No contact details'}</div></div>
-        <div class="row"><button class="btn btn-sm" id="editA">${icon.edit} Edit</button><button class="btn btn-sm btn-danger" id="delA">${icon.trash}</button>
-          <button class="btn btn-sm btn-primary" id="linkC">${icon.plus} Add client</button></div>
+function agencyView(a) {
+  return `
+    <div class="card card-pad rise row" style="justify-content:space-between;gap:16px">
+      <div><h2 style="margin:0;font-size:22px">${esc(a.name)}</h2>
+        <div class="small muted" style="margin-top:4px">${[a.contact, a.phone, a.email].filter(Boolean).map(esc).join(' · ') || 'No contact details yet'}</div></div>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-sm" id="editA">${icon.edit} Edit agency</button>
+        <button class="btn btn-sm btn-danger btn-icon" id="delA" aria-label="Delete agency">${icon.trash}</button>
+        <button class="btn btn-sm btn-dark" id="addHere">${icon.plus} Add client here</button>
       </div>
-      <div class="table-wrap"><table class="t"><thead><tr><th>Client</th><th>Rate card</th><th class="num">Agreed discount</th><th class="num">Schedules</th><th>Since</th><th></th></tr></thead><tbody>
-        ${a.clients.map((l) => `<tr><td><b>${esc(l.client_name)}</b>${l.notes ? `<div class="small muted">${esc(l.notes)}</div>` : ''}</td><td>${cardName(l)}</td>
-          <td class="num">${num(l.discount_pct)}%</td><td class="num">${l.schedule_count}</td><td class="small">${fmtDate(l.since)}</td>
-          <td class="actions"><button class="btn btn-sm" data-deal="${l.id}">${icon.edit} Deal</button> <button class="btn btn-sm" data-move="${l.client_id}">Move…</button> <button class="btn btn-sm btn-danger" data-end="${l.id}" title="Remove from this agency">${icon.trash}</button></td></tr>`).join('')
-          || '<tr><td colspan="6" class="empty">No clients linked to this agency yet.</td></tr>'}
-      </tbody></table></div>
-      ${a.past_clients.length ? `<div class="card-pad history"><b>Previous clients:</b> ${a.past_clients.map((l) => `${esc(l.client_name)} (until ${fmtDate(l.ended)})`).join(', ')}</div>` : ''}
-    ` : '<div class="empty">Add your first agency to get started.</div>'}</div>
+    </div>
+    <div class="ccards">
+      ${a.clients.map((l, i) => `
+        <article class="ccard ${panel?.link?.id === l.id ? 'sel' : ''}" style="animation-delay:${i * 60}ms">
+          <div class="row" style="gap:12px;flex-wrap:nowrap">
+            <span class="avatar" style="width:46px;height:46px">${esc(initials(l.client_name))}</span>
+            <div style="min-width:0;flex:1"><b class="display" style="font-size:17px">${esc(l.client_name)}</b>
+              <div class="small muted">With ${esc(a.name)} since ${fmtDate(l.since)} · ${l.schedule_count} schedule${l.schedule_count === 1 ? '' : 's'}${l.last_month ? ` · last ${monthLabel(l.last_month)}` : ''}</div></div>
+            <button class="btn btn-ghost btn-icon btn-sm" data-end="${l.id}" aria-label="Remove ${esc(l.client_name)} from ${esc(a.name)}" title="Remove from this agency">${icon.trash}</button>
+          </div>
+          <dl><div><dt>Rate card</dt><dd>${esc(l.rate_card_name || 'Base rate card')}</dd></div><div class="amber"><dt>Agreed discount</dt><dd>${num(l.discount_pct)}%</dd></div></dl>
+          <div class="acts"><button class="btn btn-sm" data-deal="${l.id}">Edit deal</button><button class="btn btn-sm" data-move="${l.id}">Move to another agency</button></div>
+        </article>`).join('')}
+      <button class="tile-add" id="addCard"><span>${icon.plus}</span>Add a client to ${esc(a.name)}</button>
+    </div>
+    <div class="history"><b style="color:var(--ink)">History:</b> ${a.past_clients.length
+    ? a.past_clients.map((l) => `${esc(l.client_name)} (left ${fmtDate(l.ended)})`).join(', ')
+    : 'clients that move away stay listed here with the date they left. Their old schedules keep this agency.'}</div>`;
+}
+
+function orphanView(list) {
+  return `<div class="card card-pad rise"><h2 style="margin:0;font-size:22px">Clients with no agency</h2><div class="small muted" style="margin-top:4px">Assign them to an agency so their schedules can be started.</div></div>
+    <div class="ccards">${list.map((c, i) => `
+      <article class="ccard" style="animation-delay:${i * 60}ms">
+        <div class="row" style="gap:12px;flex-wrap:nowrap"><span class="avatar" style="width:46px;height:46px">${esc(initials(c.name))}</span>
+          <div style="flex:1"><b class="display" style="font-size:17px">${esc(c.name)}</b><div class="small muted">${c.schedule_count} schedules</div></div>
+          <button class="btn btn-ghost btn-icon btn-sm" data-delc="${c.id}" aria-label="Delete ${esc(c.name)}">${icon.trash}</button></div>
+        <div class="acts"><button class="btn btn-sm btn-primary" data-assign="${c.id}">Assign to an agency</button></div>
+      </article>`).join('')}</div>`;
+}
+
+function panelView(a) {
+  const close = '<button class="btn btn-outline-light btn-sm" id="pClose">Cancel</button>';
+  if (panel.type === 'move' || panel.type === 'assign') {
+    const l = panel.link;
+    const name = l ? l.client_name : panel.client.name;
+    const others = agencies.filter((x) => !l || x.id !== l.agency_id);
+    return `<div class="dark-panel">
+      <div><span class="eyebrow">${l ? 'Move client' : 'Assign client'}</span><h3>${esc(name)} ${l ? 'is changing agency' : 'needs an agency'}</h3></div>
+      <ol><li>Choose the new agency</li><li>Confirm the rate card and discount</li>${l ? `<li>Old schedules keep ${esc(l.agency_name)}</li>` : ''}</ol>
+      <fieldset style="border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px"><legend class="small" style="font-weight:700;margin-bottom:8px">New agency</legend>
+        ${others.map((x, i) => `<label class="pick-agency"><input type="radio" name="to" value="${x.id}" ${i === 0 ? 'checked' : ''}> ${esc(x.name)}</label>`).join('') || '<div class="small">Add another agency first.</div>'}
+      </fieldset>
+      <label class="field">Rate card<select id="pCard">${cardOptions(l ? l.rate_card_id : null)}</select></label>
+      <label class="field">Agreed discount (%)<input id="pDisc" class="amber" inputmode="decimal" value="${l ? Number(l.discount_pct) : 0}"></label>
+      <div class="row" style="gap:8px"><button class="btn btn-primary" id="pGo" ${others.length ? '' : 'disabled'} style="flex:1">${l ? `Move ${esc(name)}` : 'Assign'}</button>${close}</div>
+    </div>`;
+  }
+  if (panel.type === 'deal') {
+    const l = panel.link;
+    return `<div class="dark-panel">
+      <div><span class="eyebrow">Edit deal</span><h3>${esc(l.client_name)} via ${esc(l.agency_name)}</h3></div>
+      <label class="field">Rate card<select id="pCard">${cardOptions(l.rate_card_id)}</select><span class="help" style="color:var(--side-ink)">Custom cards live under Client rate cards.</span></label>
+      <label class="field">Agreed discount (%)<input id="pDisc" class="amber" inputmode="decimal" value="${Number(l.discount_pct)}"><span class="help" style="color:var(--side-ink)">Pre-filled as the Option 02 discount on new schedules.</span></label>
+      <label class="field">Deal notes<input id="pNotes" value="${esc(l.notes || '')}" placeholder="Validity, reference…"></label>
+      <div class="row" style="gap:8px"><button class="btn btn-primary" id="pGo" style="flex:1">Save deal</button>${close}</div>
+    </div>`;
+  }
+  // add a client to the selected agency
+  const linked = new Set(a.clients.map((l) => l.client_id));
+  const free = clients.filter((c) => !linked.has(c.id));
+  return `<div class="dark-panel">
+    <div><span class="eyebrow">Add client</span><h3>New client for ${esc(a.name)}</h3></div>
+    <label class="field">Client<select id="pWho"><option value="new">+ A new client…</option>${free.map((c) => {
+    const cur = c.links.find((l) => l.active);
+    return `<option value="${c.id}">${esc(c.name)}${cur ? ` (now with ${esc(cur.agency_name)})` : ''}</option>`;
+  }).join('')}</select></label>
+    <label class="field" id="pNewWrap">Client name<input id="pName" placeholder="e.g. Dialog Axiata"></label>
+    <label class="field">Rate card<select id="pCard">${cardOptions(null)}</select></label>
+    <label class="field">Agreed discount (%)<input id="pDisc" class="amber" inputmode="decimal" value="0"></label>
+    <div class="row" style="gap:8px"><button class="btn btn-primary" id="pGo" style="flex:1">Add to ${esc(a.name)}</button>${close}</div>
   </div>`;
 }
 
-function bindAgency() {
-  const f = el.querySelector('#f');
-  f.oninput = () => { filter = f.value; const p = f.selectionStart; draw(); const n = el.querySelector('#f'); n.focus(); n.setSelectionRange(p, p); };
-  el.querySelectorAll('[data-a]').forEach((b) => b.addEventListener('click', () => { selected = Number(b.dataset.a); store.set('tvd_agency', selected); draw(); }));
-  const a = agencies.find((x) => x.id === selected);
-  if (!a) return;
-  el.querySelector('#editA').onclick = () => editAgency(a);
-  el.querySelector('#delA').onclick = async () => {
-    if (!(await confirmBox('Delete agency', `Delete <b>${esc(a.name)}</b>? Its client links are removed; clients and saved schedules are kept.`))) return;
-    await run(() => api(`/agencies/${a.id}`, { method: 'DELETE' }));
-    toast('Agency deleted'); selected = null; load();
-  };
-  el.querySelector('#linkC').onclick = () => linkClient(a);
-}
-
-// ── All clients ──
-function clientView() {
-  const shown = clients.filter((c) => !filter || c.name.toLowerCase().includes(filter.toLowerCase()));
-  return `<div class="card">
-    <div class="card-head"><div class="search" style="width:min(320px,100%)">${icon.search}<input id="f" placeholder="Find client" value="${esc(filter)}"></div><span class="muted small">${shown.length} clients</span></div>
-    <div class="table-wrap"><table class="t"><thead><tr><th>Client</th><th>Current agency</th><th>Rate card</th><th class="num">Agreed discount</th><th class="num">Schedules</th><th>History</th><th></th></tr></thead><tbody>
-    ${shown.map((c) => {
-    const cur = c.links.filter((l) => l.active);
-    const past = c.links.filter((l) => !l.active);
-    return `<tr><td><b>${esc(c.name)}</b>${c.notes ? `<div class="small muted">${esc(c.notes)}</div>` : ''}</td>
-        <td>${cur.map((l) => esc(l.agency_name)).join('<br>') || '<span class="chip warn plain">No agency</span>'}</td>
-        <td>${cur.map(cardName).join('<br>')}</td>
-        <td class="num">${cur.map((l) => `${num(l.discount_pct)}%`).join('<br>')}</td>
-        <td class="num">${c.schedule_count}</td>
-        <td class="history">${past.map((l) => `${esc(l.agency_name)} → ${fmtDate(l.ended)}`).join('<br>') || '-'}</td>
-        <td class="actions">${cur[0] ? `<button class="btn btn-sm" data-deal="${cur[0].id}">${icon.edit} Deal</button> ` : ''}<button class="btn btn-sm" data-move="${c.id}">${cur.length ? 'Move…' : 'Assign…'}</button>
-          <button class="btn btn-sm" data-ec="${c.id}" title="Rename">${icon.edit}</button> <button class="btn btn-sm btn-danger" data-dc="${c.id}">${icon.trash}</button></td></tr>`;
-  }).join('') || '<tr><td colspan="7" class="empty">No clients yet.</td></tr>'}
-    </tbody></table></div></div>`;
-}
-
-function bindClients() {
-  const f = el.querySelector('#f');
-  f.oninput = () => { filter = f.value; const p = f.selectionStart; draw(); const n = el.querySelector('#f'); n.focus(); n.setSelectionRange(p, p); };
-  el.querySelectorAll('[data-ec]').forEach((b) => b.addEventListener('click', () => editClient(clients.find((c) => c.id === Number(b.dataset.ec)))));
-  el.querySelectorAll('[data-dc]').forEach((b) => b.addEventListener('click', async () => {
-    const c = clients.find((x) => x.id === Number(b.dataset.dc));
-    if (!(await confirmBox('Delete client', `Delete <b>${esc(c.name)}</b>? Saved schedules are kept.`))) return;
-    await run(() => api(`/clients/${c.id}`, { method: 'DELETE' }));
-    toast('Client deleted'); load();
+function bind(a) {
+  const qi = el.querySelector('#q');
+  qi.oninput = () => { q = qi.value; const p = qi.selectionStart; draw(); const n = el.querySelector('#q'); n.focus(); n.setSelectionRange(p, p); };
+  el.querySelectorAll('[data-a]').forEach((b) => b.addEventListener('click', () => {
+    selected = b.dataset.a === 'none' ? 'none' : Number(b.dataset.a);
+    store.set('tvd_agency', selected); panel = null; draw();
   }));
-}
-
-function bindDealButtons() {
   const allLinks = clients.flatMap((c) => c.links);
-  el.querySelectorAll('[data-deal]').forEach((b) => b.addEventListener('click', () => editDeal(allLinks.find((l) => l.id === Number(b.dataset.deal)))));
-  el.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', () => moveClient(clients.find((c) => c.id === Number(b.dataset.move)))));
+  el.querySelectorAll('[data-deal]').forEach((b) => b.addEventListener('click', () => { panel = { type: 'deal', link: allLinks.find((l) => l.id === Number(b.dataset.deal)) }; draw(); }));
+  el.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', () => { panel = { type: 'move', link: allLinks.find((l) => l.id === Number(b.dataset.move)) }; draw(); }));
+  el.querySelectorAll('[data-assign]').forEach((b) => b.addEventListener('click', () => { panel = { type: 'assign', client: clients.find((c) => c.id === Number(b.dataset.assign)) }; draw(); }));
   el.querySelectorAll('[data-end]').forEach((b) => b.addEventListener('click', async () => {
     const l = allLinks.find((x) => x.id === Number(b.dataset.end));
     if (!(await confirmBox('Remove from agency', `Remove <b>${esc(l.client_name)}</b> from <b>${esc(l.agency_name)}</b>? It stays in the history and its schedules are kept.`, 'Remove'))) return;
     await run(() => api(`/agency-clients/${l.id}`, { method: 'DELETE' }));
-    toast('Client removed from agency'); load();
+    toast('Client removed from agency'); panel = null; load();
   }));
+  el.querySelectorAll('[data-delc]').forEach((b) => b.addEventListener('click', async () => {
+    const c = clients.find((x) => x.id === Number(b.dataset.delc));
+    if (!(await confirmBox('Delete client', `Delete <b>${esc(c.name)}</b>? Saved schedules are kept.`))) return;
+    await run(() => api(`/clients/${c.id}`, { method: 'DELETE' }));
+    toast('Client deleted'); load();
+  }));
+  if (a) {
+    const add = () => { panel = { type: 'add' }; draw(); };
+    el.querySelector('#addHere')?.addEventListener('click', add);
+    el.querySelector('#addCard')?.addEventListener('click', add);
+    el.querySelector('#editA')?.addEventListener('click', () => editAgency(a));
+    el.querySelector('#delA')?.addEventListener('click', async () => {
+      if (!(await confirmBox('Delete agency', `Delete <b>${esc(a.name)}</b>? Its client links are removed; clients and saved schedules are kept.`))) return;
+      await run(() => api(`/agencies/${a.id}`, { method: 'DELETE' }));
+      toast('Agency deleted'); selected = null; panel = null; load();
+    });
+  }
+  if (!panel) return;
+  el.querySelector('#pClose').onclick = () => { panel = null; draw(); };
+  el.querySelector('#pScrim').onclick = () => { panel = null; draw(); };
+  const who = el.querySelector('#pWho');
+  if (who) { const sync = () => el.querySelector('#pNewWrap').classList.toggle('hidden', who.value !== 'new'); who.onchange = sync; sync(); }
+  el.querySelector('#pGo').onclick = (e) => run(async () => {
+    const deal = { rate_card_id: el.querySelector('#pCard').value || null, discount_pct: el.querySelector('#pDisc').value || 0 };
+    if (panel.type === 'move' || panel.type === 'assign') {
+      const to = el.querySelector('[name=to]:checked');
+      if (!to) throw new Error('Choose the new agency');
+      const cid = panel.link ? panel.link.client_id : panel.client.id;
+      await api(`/clients/${cid}/move`, { method: 'POST', body: { ...deal, agency_id: Number(to.value) } });
+      toast(panel.link ? `${panel.link.client_name} moved` : 'Client assigned', 'ok');
+      selected = Number(to.value);
+    } else if (panel.type === 'deal') {
+      await api(`/agency-clients/${panel.link.id}`, { method: 'PUT', body: { ...deal, deal_notes: el.querySelector('#pNotes').value } });
+      toast('Deal saved', 'ok');
+    } else {
+      if (who.value === 'new') {
+        const name = el.querySelector('#pName').value.trim();
+        if (!name) throw new Error('Enter the client name');
+        await api('/clients', { method: 'POST', body: { ...deal, name, agency_id: a.id } });
+      } else {
+        await api('/agency-clients', { method: 'POST', body: { ...deal, agency_id: a.id, client_id: Number(who.value) } });
+      }
+      toast('Client added', 'ok');
+    }
+    store.set('tvd_agency', selected);
+    panel = null;
+    await load();
+  }, e.currentTarget);
 }
-
-// ── Modals ──
-const dealFields = (cardId, disc, notes) => `
-  <label class="field">Rate card<select name="rate_card_id">${cardOptions(cardId)}</select><span class="help">Custom cards are managed under <a href="#/rate-cards">Client rate cards</a>.</span></label>
-  <label class="field">Agreed discount (%)<input name="discount_pct" inputmode="decimal" value="${disc ?? 0}"><span class="help">Pre-filled as the Option 02 discount on new schedules.</span></label>
-  <label class="field full">Deal notes<input name="deal_notes" value="${esc(notes || '')}" placeholder="Validity, reference…"></label>`;
 
 async function editAgency(a = {}) {
   const saved = await modal({
@@ -145,76 +218,5 @@ async function editAgency(a = {}) {
       <label class="field full">Notes<textarea name="notes">${esc(a.notes || '')}</textarea></label></div>`,
     onOk: (b) => api(a.id ? `/agencies/${a.id}` : '/agencies', { method: a.id ? 'PUT' : 'POST', body: formData(b) }),
   });
-  if (saved) { selected = saved.id; store.set('tvd_agency', selected); view = 'agencies'; toast('Agency saved', 'ok'); load(); }
-}
-
-async function newClient(agencyId) {
-  if (!agencies.length) return toast('Add an agency first', 'error');
-  const saved = await modal({
-    title: 'Add client',
-    body: `<div class="form-grid">
-      <label class="field">Client name<input name="name" placeholder="e.g. Dialog Axiata"></label>
-      <label class="field">Agency<select name="agency_id">${agencies.map((a) => `<option value="${a.id}" ${a.id === agencyId ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label>
-      ${dealFields(null, 0, '')}
-      <label class="field full">Client notes<input name="notes"></label></div>`,
-    onOk: (b) => api('/clients', { method: 'POST', body: formData(b) }),
-  });
-  if (saved) { toast('Client added', 'ok'); load(); }
-}
-
-async function linkClient(a) {
-  const linked = new Set(a.clients.map((l) => l.client_id));
-  const free = clients.filter((c) => !linked.has(c.id));
-  const saved = await modal({
-    title: `Add client to ${a.name}`,
-    body: `<div class="form-grid">
-      <label class="field full">Client<select name="client_id"><option value="new">＋ New client…</option>
-        ${free.map((c) => `<option value="${c.id}">${esc(c.name)}${c.links.some((l) => l.active) ? ` (now with ${esc(c.links.find((l) => l.active).agency_name)})` : ''}</option>`).join('')}</select></label>
-      <label class="field full" data-newname>New client name<input name="name"></label>
-      ${dealFields(null, 0, '')}</div>`,
-    onOpen: (b) => {
-      const sel = b.querySelector('[name=client_id]');
-      const sync = () => b.querySelector('[data-newname]').classList.toggle('hidden', sel.value !== 'new');
-      sel.onchange = sync; sync();
-    },
-    onOk: (b) => {
-      const d = formData(b);
-      if (d.client_id === 'new') return api('/clients', { method: 'POST', body: { ...d, agency_id: a.id } });
-      return api('/agency-clients', { method: 'POST', body: { ...d, agency_id: a.id } });
-    },
-  });
-  if (saved) { toast('Client linked', 'ok'); load(); }
-}
-
-async function editDeal(l) {
-  const saved = await modal({
-    title: `${l.client_name} via ${l.agency_name}`,
-    body: `<div class="form-grid">${dealFields(l.rate_card_id, l.discount_pct, l.notes)}</div>`,
-    onOk: (b) => api(`/agency-clients/${l.id}`, { method: 'PUT', body: formData(b) }),
-  });
-  if (saved) { toast('Deal updated', 'ok'); load(); }
-}
-
-async function moveClient(c) {
-  const cur = c.links.find((l) => l.active);
-  const saved = await modal({
-    title: cur ? `Move ${c.name} to another agency` : `Assign ${c.name} to an agency`,
-    body: `<div class="form-grid">
-      ${cur ? `<div class="note full">Currently with <b>${esc(cur.agency_name)}</b> since ${fmtDate(cur.since)}. That link will end today and stay in the history; existing schedules keep ${esc(cur.agency_name)}.</div>` : ''}
-      <label class="field full">New agency<select name="agency_id">${agencies.filter((a) => !cur || a.id !== cur.agency_id).map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></label>
-      ${dealFields(cur?.rate_card_id ?? null, cur?.discount_pct ?? 0, '')}</div>`,
-    okText: cur ? 'Move client' : 'Assign',
-    onOk: (b) => api(`/clients/${c.id}/move`, { method: 'POST', body: formData(b) }),
-  });
-  if (saved) { toast(`${c.name} moved`, 'ok'); selected = saved.agency_id; store.set('tvd_agency', selected); load(); }
-}
-
-async function editClient(c) {
-  const saved = await modal({
-    title: 'Edit client',
-    body: `<div class="form-grid"><label class="field full">Client name<input name="name" value="${esc(c.name)}"></label>
-      <label class="field full">Notes<input name="notes" value="${esc(c.notes || '')}"></label></div>`,
-    onOk: (b) => api(`/clients/${c.id}`, { method: 'PUT', body: formData(b) }),
-  });
-  if (saved) { toast('Client saved', 'ok'); load(); }
+  if (saved) { selected = saved.id; store.set('tvd_agency', selected); panel = null; toast('Agency saved', 'ok'); load(); }
 }
